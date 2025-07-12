@@ -30,7 +30,7 @@ def send_telegram_message(text):
     except Exception as e:
         print("Telegram gönderim hatası:", e)
 
-def fetch_binance_klines(symbol, interval, limit=200):
+def fetch_binance_klines(symbol, interval, limit=250):
     url = f"https://api.binance.com/api/v3/klines"
     params = {"symbol": symbol.upper(), "interval": interval, "limit": limit}
     response = requests.get(url, params=params)
@@ -60,35 +60,25 @@ def get_position():
 
 def close_position(current_pos):
     try:
-        if current_pos == "long":
-            session.place_order(
-                category="linear",
-                symbol=bybit_symbol,
-                side="Sell",
-                order_type="Market",
-                qty=qty,
-                time_in_force="GoodTillCancel",
-                reduce_only=True
-            )
-        elif current_pos == "short":
-            session.place_order(
-                category="linear",
-                symbol=bybit_symbol,
-                side="Buy",
-                order_type="Market",
-                qty=qty,
-                time_in_force="GoodTillCancel",
-                reduce_only=True
-            )
+        side = "Sell" if current_pos == "long" else "Buy"
+        session.place_order(
+            category="linear",
+            symbol=bybit_symbol,
+            side=side,
+            order_type="Market",
+            qty=qty,
+            time_in_force="GoodTillCancel",
+            reduce_only=True
+        )
         send_telegram_message(f"Pozisyon kapatıldı: {current_pos.upper()}")
     except Exception as e:
         print("Pozisyon kapatma hatası:", e)
 
-def open_position(direction, current_price):
+def open_position(direction, entry_price):
     try:
         side = "Buy" if direction == "long" else "Sell"
-        tp_price = round(current_price + 0.03, 4) if direction == "long" else round(current_price - 0.03, 4)
-        sl_price = round(current_price - 0.02, 4) if direction == "long" else round(current_price + 0.02, 4)
+        tp_price = round(entry_price + 0.03, 4) if direction == "long" else round(entry_price - 0.03, 4)
+        sl_price = round(entry_price - 0.02, 4) if direction == "long" else round(entry_price + 0.02, 4)
 
         # Market order aç
         session.place_order(
@@ -99,33 +89,31 @@ def open_position(direction, current_price):
             qty=qty,
             time_in_force="GoodTillCancel"
         )
+        send_telegram_message(f"Yeni işlem açıldı: {direction.upper()} @ {entry_price:.4f}")
 
-        # TP: limit order
+        # TP & SL limit orderları
         session.place_order(
             category="linear",
             symbol=bybit_symbol,
             side="Sell" if direction == "long" else "Buy",
             order_type="Limit",
             qty=qty,
-            price=tp_price,
+            price=str(tp_price),
             time_in_force="GoodTillCancel",
             reduce_only=True
         )
-
-        # SL: market trigger order
         session.place_order(
             category="linear",
             symbol=bybit_symbol,
             side="Sell" if direction == "long" else "Buy",
-            order_type="Market",
+            order_type="StopMarket",
             qty=qty,
+            stop_loss=str(sl_price),
             trigger_direction=2 if direction == "long" else 1,
-            trigger_price=sl_price,
             time_in_force="GoodTillCancel",
             reduce_only=True
         )
-
-        send_telegram_message(f"{direction.upper()} açıldı | TP: {tp_price} | SL: {sl_price}")
+        send_telegram_message(f"TP: {tp_price:.4f}, SL: {sl_price:.4f}")
     except Exception as e:
         print("İşlem açma hatası:", e)
 
@@ -143,13 +131,12 @@ def run_bot():
             last_checked_minute = current_minute
 
             try:
-                df = fetch_binance_klines(symbol, interval)
+                df = fetch_binance_klines(symbol, interval, limit=250)
                 df["sma100"] = calculate_sma(df, 100)
                 df["sma200"] = calculate_sma(df, 200)
 
                 sma100 = df["sma100"].iloc[-2]
                 sma200 = df["sma200"].iloc[-2]
-                current_price = df["close"].iloc[-1]
 
                 log_msg = f"[{now.strftime('%H:%M')}] SMA100: {sma100:.4f} | SMA200: {sma200:.4f}"
                 print(log_msg)
@@ -172,7 +159,12 @@ def run_bot():
                         if current_pos:
                             close_position(current_pos)
                             time.sleep(1)
-                        open_position(pending_signal, current_price)
+
+                        # Mevcut fiyatı al
+                        ticker = session.get_ticker(category="linear", symbol=bybit_symbol)
+                        mark_price = float(ticker["result"]["list"][0]["markPrice"])
+                        open_position(pending_signal, mark_price)
+
                     pending_signal = None
                     pending_minute = None
 
