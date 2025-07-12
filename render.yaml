@@ -1,0 +1,17 @@
+
+services:
+  - type: worker
+    name: bybit-sma-telegram-bot
+    runtime: python
+    plan: starter
+    envVars:
+      - key: BYBIT_API_KEY
+        sync: false
+      - key: BYBIT_API_SECRET
+        sync: false
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: TELEGRAM_CHAT_ID
+        sync: false
+    buildCommand: pip install -r requirements.txt
+    startCommand: python bybit_sma_telegram_bot.py
