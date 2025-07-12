@@ -1,105 +1,127 @@
+import os
 import time
 import requests
 from datetime import datetime, timezone
+from binance.client import Client
 from pybit.unified_trading import HTTP
-import pandas as pd
 
-# API ve Telegram bilgileri (Render ortamında env olarak eklenmeli)
+# Çevresel değişkenlerden API anahtarları
 BYBIT_API_KEY = os.environ.get("BYBIT_API_KEY")
 BYBIT_API_SECRET = os.environ.get("BYBIT_API_SECRET")
+BINANCE_API_KEY = os.environ.get("BINANCE_API_KEY")
+BINANCE_API_SECRET = os.environ.get("BINANCE_API_SECRET")
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
 
-symbol = "SUIUSDT"
-binance_symbol = "suiusdt"
-qty = 1000
-leverage = 50
+# Ayarlar
+symbol_binance = "SUIUSDT"
+symbol_bybit = "SUIUSDT"
+interval = Client.KLINE_INTERVAL_1MINUTE
+qty = 1000  # işlem miktarı (SUI)
+sma_period_short = 9
+sma_period_long = 21
 
-bybit = HTTP(testnet=False, api_key=BYBIT_API_KEY, api_secret=BYBIT_API_SECRET)
+# API istemcileri
+binance_client = Client(api_key=BINANCE_API_KEY, api_secret=BINANCE_API_SECRET)
+bybit_client = HTTP(api_key=BYBIT_API_KEY, api_secret=BYBIT_API_SECRET)
 
-def send_telegram(msg):
+last_signal = None  # crossover kontrolü için
+last_minute = -1
+
+def get_binance_sma_values():
+    klines = binance_client.get_klines(symbol=symbol_binance, interval=interval, limit=sma_period_long + 1)
+    closes = [float(kline[4]) for kline in klines]
+
+    sma9 = sum(closes[-sma_period_short:]) / sma_period_short
+    sma21 = sum(closes[-sma_period_long:]) / sma_period_long
+
+    return sma9, sma21
+
+def get_bybit_position():
     try:
-        requests.post(
-            f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage",
-            data={"chat_id": TELEGRAM_CHAT_ID, "text": msg}
-        )
-    except Exception as e:
-        print("Telegram hatası:", e)
-
-def calculate_sma(series, period):
-    return series.rolling(window=period).mean()
-
-def get_binance_data():
-    url = f"https://api.binance.com/api/v3/klines?symbol={binance_symbol.upper()}&interval=1m&limit=30"
-    response = requests.get(url)
-    df = pd.DataFrame(response.json(), columns=[
-        "timestamp", "open", "high", "low", "close", "volume", "close_time",
-        "quote_asset_volume", "number_of_trades", "taker_buy_base", "taker_buy_quote", "ignore"
-    ])
-    df["close"] = df["close"].astype(float)
-    return df
-
-def get_position():
-    try:
-        pos = bybit.get_positions(category="linear", symbol=symbol)["result"]["list"][0]
+        pos = bybit_client.get_positions(category="linear", symbol=symbol_bybit)["result"]["list"][0]
         size = float(pos["size"])
         side = pos["side"]
         return size, side
-    except Exception:
+    except Exception as e:
+        print("Pozisyon bilgisi alınamadı:", e)
         return 0, None
 
-def close_position(side):
-    opposite = "Sell" if side == "Buy" else "Buy"
+def close_position(current_side):
     try:
-        bybit.place_order(category="linear", symbol=symbol, side=opposite, order_type="Market", qty=qty, time_in_force="GoodTillCancel")
-        print("Pozisyon kapatıldı.")
+        side = "Sell" if current_side == "Buy" else "Buy"
+        bybit_client.place_order(
+            category="linear",
+            symbol=symbol_bybit,
+            side=side,
+            order_type="Market",
+            qty=qty,
+            time_in_force="GoodTillCancel",
+            reduce_only=True
+        )
+        print("Aktif pozisyon kapatıldı.")
     except Exception as e:
         print("Pozisyon kapatma hatası:", e)
 
-def place_order(signal):
+def open_position(side):
     try:
-        bybit.place_order(category="linear", symbol=symbol, side=signal, order_type="Market", qty=qty, time_in_force="GoodTillCancel")
-        send_telegram(f"İşlem açıldı: {signal}")
+        bybit_client.place_order(
+            category="linear",
+            symbol=symbol_bybit,
+            side=side,
+            order_type="Market",
+            qty=qty,
+            time_in_force="GoodTillCancel"
+        )
+        print(f"{side} pozisyon açıldı.")
     except Exception as e:
-        print("İşlem gönderilemedi:", e)
+        print("Pozisyon açma hatası:", e)
+
+def send_telegram_message(message):
+    try:
+        url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
+        payload = {
+            "chat_id": TELEGRAM_CHAT_ID,
+            "text": message
+        }
+        requests.post(url, data=payload)
+    except Exception as e:
+        print("Telegram mesaj hatası:", e)
 
 def run_bot():
-    print("📡 1 dakikalık SMA (Binance verili) bot çalışıyor")
-    send_telegram("🚀 Bot başlatıldı (SMA9/SMA21, Binance verisi)")
-    last_signal = None
+    global last_signal, last_minute
+
+    print("✅ SMA Crossover botu başlatıldı (1 dakikalık).")
 
     while True:
         now = datetime.now(timezone.utc)
-        if now.second == 0:
+        if now.minute != last_minute and now.second == 0:
+            last_minute = now.minute
+
             try:
-                df = get_binance_data()
-                df["sma9"] = calculate_sma(df["close"], 9)
-                df["sma21"] = calculate_sma(df["close"], 21)
+                sma9, sma21 = get_binance_sma_values()
+                msg = f"[{now.strftime('%H:%M')}] SMA9: {sma9:.4f} | SMA21: {sma21:.4f}"
+                print(msg)
+                send_telegram_message(msg)
 
-                sma9 = df["sma9"].iloc[-2]
-                sma21 = df["sma21"].iloc[-2]
+                signal = "long" if sma9 > sma21 else "short"
 
-                send_telegram(f"[{now.strftime('%H:%M:%S')}] SMA9: {sma9:.4f}, SMA21: {sma21:.4f}")
-
-                if pd.isna(sma9) or pd.isna(sma21):
-                    continue
-
-                signal = "Buy" if sma9 > sma21 else "Sell" if sma9 < sma21 else None
-
-                if signal and signal != last_signal:
-                    size, current_side = get_position()
-                    if size > 0 and current_side != signal:
-                        close_position(current_side)
-                        time.sleep(1)
-                        place_order(signal)
-                    elif size == 0:
-                        place_order(signal)
+                if signal != last_signal:
                     last_signal = signal
+                    size, side = get_bybit_position()
+
+                    if size > 0:
+                        if (signal == "long" and side == "Sell") or (signal == "short" and side == "Buy"):
+                            close_position(side)
+                            time.sleep(2)
+
+                    current_side = "Buy" if signal == "long" else "Sell"
+                    if (size == 0) or (side != current_side):
+                        open_position(current_side)
 
             except Exception as e:
-                print("Bot hatası:", e)
+                print("HATA:", e)
 
-            time.sleep(60)
         time.sleep(0.5)
 
 if __name__ == "__main__":
