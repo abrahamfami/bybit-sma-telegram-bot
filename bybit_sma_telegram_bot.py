@@ -19,6 +19,8 @@ binance_symbol = "SUIUSDT"
 last_signal = None
 pending_signal = None
 pending_minute = None
+limit_offset = 0.0005
+tp_offset = 0.03
 
 session = HTTP(testnet=False, api_key=BYBIT_API_KEY, api_secret=BYBIT_API_SECRET)
 
@@ -59,54 +61,74 @@ def get_position():
         print("Pozisyon alınamadı:", e)
     return None
 
-def close_position(current_pos):
+def close_position(current_pos, price):
     try:
-        side = "Sell" if current_pos == "long" else "Buy"
+        if current_pos == "long":
+            close_price = round(price + limit_offset, 4)
+            side = "Sell"
+        else:
+            close_price = round(price - limit_offset, 4)
+            side = "Buy"
+
         session.place_order(
             category="linear",
             symbol=symbol,
             side=side,
-            order_type="Market",
+            order_type="Limit",
+            price=str(close_price),
             qty=qty,
             time_in_force="GoodTillCancel",
             reduce_only=True
         )
-        send_telegram_message(f"Pozisyon kapatıldı: {current_pos.upper()}")
+        send_telegram_message(f"Pozisyon kapatılıyor: {current_pos.upper()} | Fiyat: {close_price}")
     except Exception as e:
         print("Pozisyon kapatma hatası:", e)
 
-def open_position(direction, current_price):
+def open_position(direction, price):
     try:
-        side = "Buy" if direction == "long" else "Sell"
-        tp_price = round(current_price + 0.03, 4) if direction == "long" else round(current_price - 0.03, 4)
+        if direction == "long":
+            entry_price = round(price - limit_offset, 4)
+            tp_price = round(entry_price + tp_offset, 4)
+            side = "Buy"
+            tp_side = "Sell"
+        else:
+            entry_price = round(price + limit_offset, 4)
+            tp_price = round(entry_price - tp_offset, 4)
+            side = "Sell"
+            tp_side = "Buy"
 
+        # Pozisyon açma (limit)
         session.place_order(
             category="linear",
             symbol=symbol,
             side=side,
-            order_type="Market",
+            order_type="Limit",
+            price=str(entry_price),
             qty=qty,
             time_in_force="GoodTillCancel"
         )
 
+        # TP emri (limit)
         session.place_order(
             category="linear",
             symbol=symbol,
-            side="Sell" if direction == "long" else "Buy",
+            side=tp_side,
             order_type="Limit",
-            qty=qty,
             price=str(tp_price),
+            qty=qty,
             time_in_force="GoodTillCancel",
             reduce_only=True
         )
 
-        send_telegram_message(f"İşlem açıldı: {direction.upper()} | Giriş: {current_price} | TP: {tp_price}")
+        send_telegram_message(
+            f"İşlem açılıyor: {direction.upper()} | Giriş: {entry_price} | TP: {tp_price}"
+        )
     except Exception as e:
         print("İşlem açma hatası:", e)
 
 def run_bot():
     global last_signal, pending_signal, pending_minute
-    print("✅ Bot çalışıyor...")
+    print("✅ Bot limit order ile çalışıyor...")
 
     last_checked_minute = -1
 
@@ -131,26 +153,23 @@ def run_bot():
                 print(log_msg)
                 send_telegram_message(log_msg)
 
-                # Stop Loss kontrolü (fiyat SMA200 altına inerse long kapat, üstüne çıkarsa short kapat)
                 current_pos = get_position()
                 if current_pos == "long" and price < sma200:
-                    close_position("long")
+                    close_position("long", price)
                 elif current_pos == "short" and price > sma200:
-                    close_position("short")
+                    close_position("short", price)
 
-                # Yeni sinyal kontrolü
                 signal = "long" if sma100 > sma200 else "short"
                 if signal != last_signal:
                     pending_signal = signal
                     pending_minute = (now + timedelta(minutes=1)).minute
                     last_signal = signal
 
-                # Zamanı geldiyse işlem aç
                 if pending_signal and current_minute == pending_minute:
                     current_pos = get_position()
                     if current_pos != pending_signal:
                         if current_pos:
-                            close_position(current_pos)
+                            close_position(current_pos, price)
                             time.sleep(1)
                         open_position(pending_signal, price)
                     pending_signal = None
