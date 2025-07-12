@@ -17,12 +17,11 @@ qty = 1000
 interval = "1m"
 bybit_symbol = "SUIUSDT"
 last_signal = None
-last_signal_time = None
+pending_signal = None
+pending_minute = None
 
-# Bybit oturumu
 session = HTTP(testnet=False, api_key=BYBIT_API_KEY, api_secret=BYBIT_API_SECRET)
 
-# Telegram mesajı gönder
 def send_telegram_message(text):
     try:
         url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
@@ -31,7 +30,6 @@ def send_telegram_message(text):
     except Exception as e:
         print("Telegram gönderim hatası:", e)
 
-# Binance verisini çek
 def fetch_binance_klines(symbol, interval, limit=50):
     url = f"https://api.binance.com/api/v3/klines"
     params = {"symbol": symbol.upper(), "interval": interval, "limit": limit}
@@ -45,11 +43,9 @@ def fetch_binance_klines(symbol, interval, limit=50):
     df["close"] = df["close"].astype(float)
     return df
 
-# SMA hesapla
 def calculate_sma(df, period):
     return df["close"].rolling(window=period).mean()
 
-# Mevcut pozisyonu al
 def get_position():
     try:
         positions = session.get_positions(category="linear", symbol=bybit_symbol)["result"]["list"]
@@ -62,7 +58,6 @@ def get_position():
         print("Pozisyon alınamadı:", e)
     return None
 
-# Pozisyonu kapat
 def close_position(current_pos):
     try:
         if current_pos == "long":
@@ -89,7 +84,6 @@ def close_position(current_pos):
     except Exception as e:
         print("Pozisyon kapatma hatası:", e)
 
-# Pozisyon aç
 def open_position(direction):
     try:
         side = "Buy" if direction == "long" else "Sell"
@@ -105,52 +99,58 @@ def open_position(direction):
     except Exception as e:
         print("İşlem açma hatası:", e)
 
-# Ana döngü
 def run_bot():
-    global last_signal, last_signal_time
+    global last_signal, pending_signal, pending_minute
     print("✅ Bot çalışıyor...")
+
+    last_checked_minute = -1
 
     while True:
         now = datetime.now(timezone.utc).replace(second=0, microsecond=0)
+        current_minute = now.minute
 
-        try:
-            df = fetch_binance_klines(symbol, interval)
-            df["sma9"] = calculate_sma(df, 9)
-            df["sma21"] = calculate_sma(df, 21)
+        if current_minute != last_checked_minute:
+            last_checked_minute = current_minute
 
-            sma9 = df["sma9"].iloc[-2]
-            sma21 = df["sma21"].iloc[-2]
+            try:
+                df = fetch_binance_klines(symbol, interval)
+                df["sma9"] = calculate_sma(df, 9)
+                df["sma21"] = calculate_sma(df, 21)
 
-            log_msg = f"[{now.strftime('%H:%M')}] SMA9: {sma9:.4f} | SMA21: {sma21:.4f}"
-            print(log_msg)
-            send_telegram_message(log_msg)
+                sma9 = df["sma9"].iloc[-2]
+                sma21 = df["sma21"].iloc[-2]
 
-            # Sinyal üret
-            if sma9 > sma21:
-                signal = "long"
-            elif sma9 < sma21:
-                signal = "short"
-            else:
+                log_msg = f"[{now.strftime('%H:%M')}] SMA9: {sma9:.4f} | SMA21: {sma21:.4f}"
+                print(log_msg)
+                send_telegram_message(log_msg)
+
+                # Yeni sinyali kontrol et (bir önceki kapanıştan)
                 signal = None
+                if sma9 > sma21:
+                    signal = "long"
+                elif sma9 < sma21:
+                    signal = "short"
 
-            # Sinyal değiştiyse zamanı kaydet
-            if signal and signal != last_signal:
-                last_signal = signal
-                last_signal_time = now
+                if signal and signal != last_signal:
+                    pending_signal = signal
+                    pending_minute = (now + timedelta(minutes=1)).minute
+                    last_signal = signal
 
-            # Sinyal 1 dakika önce geldiyse işlem aç
-            if last_signal and last_signal_time and now == last_signal_time + timedelta(minutes=1):
-                current_pos = get_position()
-                if current_pos != last_signal:
-                    if current_pos:
-                        close_position(current_pos)
-                        time.sleep(1)
-                    open_position(last_signal)
+                # Bekleyen sinyal varsa ve şimdi uygulanma zamanı geldiyse:
+                if pending_signal and current_minute == pending_minute:
+                    current_pos = get_position()
+                    if current_pos != pending_signal:
+                        if current_pos:
+                            close_position(current_pos)
+                            time.sleep(1)
+                        open_position(pending_signal)
+                    pending_signal = None
+                    pending_minute = None
 
-        except Exception as e:
-            print("Genel hata:", e)
+            except Exception as e:
+                print("Genel hata:", e)
 
-        time.sleep(60)
+        time.sleep(1)
 
 if __name__ == "__main__":
     run_bot()
