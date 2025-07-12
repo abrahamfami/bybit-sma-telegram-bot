@@ -1,40 +1,36 @@
-import requests
-import pandas as pd
-from pybit.unified_trading import HTTP
-from datetime import datetime, timedelta, timezone
 import time
 import os
+import requests
+import pandas as pd
+from datetime import datetime, timezone
+from pybit.unified_trading import HTTP
 
-# Ortam değişkenleri
+# API keys
 BYBIT_API_KEY = os.environ.get("BYBIT_API_KEY")
 BYBIT_API_SECRET = os.environ.get("BYBIT_API_SECRET")
-TELEGRAM_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
+TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
 
-# Sabitler
+# Trade config
 symbol = "SUIUSDT"
 qty = 1000
 interval = "1m"
-bybit_symbol = "SUIUSDT"
-last_signal = None
-pending_signal = None
-pending_minute = None
 
-session = HTTP(testnet=False, api_key=BYBIT_API_KEY, api_secret=BYBIT_API_SECRET)
+# Setup sessions
+bybit = HTTP(testnet=False, api_key=BYBIT_API_KEY, api_secret=BYBIT_API_SECRET)
 
-def send_telegram_message(text):
+def send_telegram_message(msg):
     try:
         url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-        data = {"chat_id": TELEGRAM_CHAT_ID, "text": text}
+        data = {"chat_id": TELEGRAM_CHAT_ID, "text": msg}
         requests.post(url, data=data)
     except Exception as e:
-        print("Telegram gönderim hatası:", e)
+        print("Telegram Hatası:", e)
 
-def fetch_binance_klines(symbol, interval, limit=50):
-    url = f"https://api.binance.com/api/v3/klines"
-    params = {"symbol": symbol.upper(), "interval": interval, "limit": limit}
-    response = requests.get(url, params=params)
-    data = response.json()
+def fetch_binance_klines():
+    url = f"https://api.binance.com/api/v3/klines?symbol={symbol}&interval={interval}&limit=50"
+    r = requests.get(url)
+    data = r.json()
     df = pd.DataFrame(data, columns=[
         "timestamp", "open", "high", "low", "close",
         "volume", "close_time", "quote_asset_volume",
@@ -43,113 +39,109 @@ def fetch_binance_klines(symbol, interval, limit=50):
     df["close"] = df["close"].astype(float)
     return df
 
-def calculate_sma(df, period):
-    return df["close"].rolling(window=period).mean()
+def get_signal():
+    df = fetch_binance_klines()
+    closes = df["close"]
+
+    sma7 = closes.rolling(window=7).mean().iloc[-2]
+    sma9 = closes.rolling(window=9).mean().iloc[-2]
+    sma21 = closes.rolling(window=21).mean().iloc[-2]
+    sma50 = closes.rolling(window=50).mean().iloc[-2]
+
+    timestamp = datetime.utcnow().strftime("%H:%M:%S")
+    log = f"[{timestamp}] SMA7: {sma7:.2f} | SMA9: {sma9:.2f} | SMA21: {sma21:.2f} | SMA50: {sma50:.2f}"
+
+    if sma7 > sma9 > sma21 > sma50:
+        return "Buy", log + "\n→ Sinyal: LONG"
+    elif sma50 > sma21 > sma9 > sma7:
+        return "Sell", log + "\n→ Sinyal: SHORT"
+    else:
+        return None, log + "\n→ Sinyal: YOK"
 
 def get_position():
-    try:
-        positions = session.get_positions(category="linear", symbol=bybit_symbol)["result"]["list"]
-        for p in positions:
-            if p["side"] == "Buy" and float(p["size"]) > 0:
-                return "long"
-            elif p["side"] == "Sell" and float(p["size"]) > 0:
-                return "short"
-    except Exception as e:
-        print("Pozisyon alınamadı:", e)
-    return None
+    positions = bybit.get_positions(category="linear")["result"]["list"]
+    for p in positions:
+        if p["symbol"] == symbol:
+            side = p["side"]
+            size = float(p["size"])
+            return side, size
+    return None, 0
 
-def close_position(current_pos):
+def close_position(side, size):
+    if size == 0:
+        return
+    close_side = "Sell" if side == "Buy" else "Buy"
     try:
-        if current_pos == "long":
-            session.place_order(
-                category="linear",
-                symbol=bybit_symbol,
-                side="Sell",
-                order_type="Market",
-                qty=qty,
-                time_in_force="GoodTillCancel",
-                reduce_only=True
-            )
-        elif current_pos == "short":
-            session.place_order(
-                category="linear",
-                symbol=bybit_symbol,
-                side="Buy",
-                order_type="Market",
-                qty=qty,
-                time_in_force="GoodTillCancel",
-                reduce_only=True
-            )
-        send_telegram_message(f"Pozisyon kapatıldı: {current_pos.upper()}")
+        bybit.place_order(
+            category="linear",
+            symbol=symbol,
+            side=close_side,
+            order_type="Market",
+            qty=size,
+            time_in_force="GoodTillCancel",
+            reduce_only=True
+        )
+        print(f"{side} pozisyonu kapatıldı.")
     except Exception as e:
         print("Pozisyon kapatma hatası:", e)
 
-def open_position(direction):
+def place_order(side):
     try:
-        side = "Buy" if direction == "long" else "Sell"
-        session.place_order(
+        bybit.place_order(
             category="linear",
-            symbol=bybit_symbol,
+            symbol=symbol,
             side=side,
             order_type="Market",
             qty=qty,
-            time_in_force="GoodTillCancel"
+            time_in_force="GoodTillCancel",
+            reduce_only=False
         )
-        send_telegram_message(f"Yeni işlem açıldı: {direction.upper()}")
+        print(f"{side} emri gönderildi.")
     except Exception as e:
-        print("İşlem açma hatası:", e)
+        print("Emir gönderilemedi:", e)
 
 def run_bot():
-    global last_signal, pending_signal, pending_minute
-    print("✅ Bot çalışıyor...")
-
-    last_checked_minute = -1
+    print("🚀 Gecikmeli Çoklu SMA botu başladı...")
+    send_telegram_message("🚀 Gecikmeli SMA botu başlatıldı.")
+    
+    last_signal = None
+    pending_signal = None
+    signal_detected_minute = None
 
     while True:
-        now = datetime.now(timezone.utc).replace(second=0, microsecond=0)
+        now = datetime.now(timezone.utc)
         current_minute = now.minute
 
-        if current_minute != last_checked_minute:
-            last_checked_minute = current_minute
-
+        if now.second == 0:
             try:
-                df = fetch_binance_klines(symbol, interval)
-                df["sma9"] = calculate_sma(df, 9)
-                df["sma21"] = calculate_sma(df, 21)
-
-                sma9 = df["sma9"].iloc[-2]
-                sma21 = df["sma21"].iloc[-2]
-
-                log_msg = f"[{now.strftime('%H:%M')}] SMA9: {sma9:.4f} | SMA21: {sma21:.4f}"
-                print(log_msg)
-                send_telegram_message(log_msg)
-
-                # Yeni sinyali kontrol et (bir önceki kapanıştan)
-                signal = None
-                if sma9 > sma21:
-                    signal = "long"
-                elif sma9 < sma21:
-                    signal = "short"
+                signal, log = get_signal()
+                send_telegram_message(log)
 
                 if signal and signal != last_signal:
                     pending_signal = signal
-                    pending_minute = (now + timedelta(minutes=1)).minute
-                    last_signal = signal
+                    signal_detected_minute = current_minute
 
-                # Bekleyen sinyal varsa ve şimdi uygulanma zamanı geldiyse:
-                if pending_signal and current_minute == pending_minute:
-                    current_pos = get_position()
-                    if current_pos != pending_signal:
-                        if current_pos:
-                            close_position(current_pos)
-                            time.sleep(1)
-                        open_position(pending_signal)
+                # İşlem açma zamanı geldi mi kontrolü
+                if pending_signal is not None and (current_minute == (signal_detected_minute + 1) % 60):
+                    current_side, size = get_position()
+
+                    if size > 0:
+                        if current_side != pending_signal:
+                            close_position(current_side, size)
+                            time.sleep(2)
+                            place_order(pending_signal)
+                            last_signal = pending_signal
+                    else:
+                        place_order(pending_signal)
+                        last_signal = pending_signal
+
                     pending_signal = None
-                    pending_minute = None
+                    signal_detected_minute = None
 
             except Exception as e:
-                print("Genel hata:", e)
+                print("HATA:", e)
 
+            time.sleep(60)
         time.sleep(1)
 
 if __name__ == "__main__":
