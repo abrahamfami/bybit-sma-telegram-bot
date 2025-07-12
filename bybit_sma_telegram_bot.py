@@ -11,16 +11,17 @@ BYBIT_API_SECRET = os.environ.get("BYBIT_API_SECRET")
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
 
-# Sabitler
 symbol = "SUIUSDT"
 qty = 1000
 interval = "1m"
 bybit_symbol = "SUIUSDT"
+
+session = HTTP(testnet=False, api_key=BYBIT_API_KEY, api_secret=BYBIT_API_SECRET)
+
 last_signal = None
 pending_signal = None
 pending_minute = None
-
-session = HTTP(testnet=False, api_key=BYBIT_API_KEY, api_secret=BYBIT_API_SECRET)
+entry_price = None
 
 def send_telegram_message(text):
     try:
@@ -30,7 +31,7 @@ def send_telegram_message(text):
     except Exception as e:
         print("Telegram gönderim hatası:", e)
 
-def fetch_binance_klines(symbol, interval, limit=250):
+def fetch_binance_klines(symbol, interval, limit=200):
     url = f"https://api.binance.com/api/v3/klines"
     params = {"symbol": symbol.upper(), "interval": interval, "limit": limit}
     response = requests.get(url, params=params)
@@ -60,16 +61,26 @@ def get_position():
 
 def close_position(current_pos):
     try:
-        side = "Sell" if current_pos == "long" else "Buy"
-        session.place_order(
-            category="linear",
-            symbol=bybit_symbol,
-            side=side,
-            order_type="Market",
-            qty=qty,
-            time_in_force="GoodTillCancel",
-            reduce_only=True
-        )
+        if current_pos == "long":
+            session.place_order(
+                category="linear",
+                symbol=bybit_symbol,
+                side="Sell",
+                order_type="Market",
+                qty=qty,
+                time_in_force="GoodTillCancel",
+                reduce_only=True
+            )
+        elif current_pos == "short":
+            session.place_order(
+                category="linear",
+                symbol=bybit_symbol,
+                side="Buy",
+                order_type="Market",
+                qty=qty,
+                time_in_force="GoodTillCancel",
+                reduce_only=True
+            )
         send_telegram_message(f"Pozisyon kapatıldı: {current_pos.upper()}")
     except Exception as e:
         print("Pozisyon kapatma hatası:", e)
@@ -77,10 +88,6 @@ def close_position(current_pos):
 def open_position(direction, entry_price):
     try:
         side = "Buy" if direction == "long" else "Sell"
-        tp_price = round(entry_price + 0.03, 4) if direction == "long" else round(entry_price - 0.03, 4)
-        sl_price = round(entry_price - 0.02, 4) if direction == "long" else round(entry_price + 0.02, 4)
-
-        # Market order aç
         session.place_order(
             category="linear",
             symbol=bybit_symbol,
@@ -89,36 +96,32 @@ def open_position(direction, entry_price):
             qty=qty,
             time_in_force="GoodTillCancel"
         )
-        send_telegram_message(f"Yeni işlem açıldı: {direction.upper()} @ {entry_price:.4f}")
+        tp_price = entry_price + 0.03 if direction == "long" else entry_price - 0.03
+        tp_side = "Sell" if direction == "long" else "Buy"
 
-        # TP & SL limit orderları
         session.place_order(
             category="linear",
             symbol=bybit_symbol,
-            side="Sell" if direction == "long" else "Buy",
+            side=tp_side,
             order_type="Limit",
+            price=str(round(tp_price, 4)),
             qty=qty,
-            price=str(tp_price),
             time_in_force="GoodTillCancel",
             reduce_only=True
         )
-        session.place_order(
-            category="linear",
-            symbol=bybit_symbol,
-            side="Sell" if direction == "long" else "Buy",
-            order_type="StopMarket",
-            qty=qty,
-            stop_loss=str(sl_price),
-            trigger_direction=2 if direction == "long" else 1,
-            time_in_force="GoodTillCancel",
-            reduce_only=True
-        )
-        send_telegram_message(f"TP: {tp_price:.4f}, SL: {sl_price:.4f}")
+        send_telegram_message(f"Yeni işlem açıldı: {direction.upper()} | TP: {tp_price:.4f}")
     except Exception as e:
         print("İşlem açma hatası:", e)
 
+def get_last_price():
+    try:
+        data = session.get_ticker(category="linear", symbol=bybit_symbol)
+        return float(data["result"]["lastPrice"])
+    except:
+        return None
+
 def run_bot():
-    global last_signal, pending_signal, pending_minute
+    global last_signal, pending_signal, pending_minute, entry_price
     print("✅ Bot çalışıyor...")
 
     last_checked_minute = -1
@@ -131,22 +134,35 @@ def run_bot():
             last_checked_minute = current_minute
 
             try:
-                df = fetch_binance_klines(symbol, interval, limit=250)
+                df = fetch_binance_klines(symbol, interval)
                 df["sma100"] = calculate_sma(df, 100)
                 df["sma200"] = calculate_sma(df, 200)
 
                 sma100 = df["sma100"].iloc[-2]
                 sma200 = df["sma200"].iloc[-2]
+                last_price = get_last_price()
 
-                log_msg = f"[{now.strftime('%H:%M')}] SMA100: {sma100:.4f} | SMA200: {sma200:.4f}"
+                log_msg = f"[{now.strftime('%H:%M')}] SMA100: {sma100:.4f} | SMA200: {sma200:.4f} | Fiyat: {last_price}"
                 print(log_msg)
                 send_telegram_message(log_msg)
 
+                # Crossover sinyali belirle
                 signal = None
                 if sma100 > sma200:
                     signal = "long"
                 elif sma100 < sma200:
                     signal = "short"
+
+                # SL kontrolü
+                current_pos = get_position()
+                if current_pos == "long" and last_price and last_price < sma200:
+                    send_telegram_message("SMA200 altına düştü! LONG pozisyon kapatılıyor.")
+                    close_position(current_pos)
+                    continue
+                elif current_pos == "short" and last_price and last_price > sma200:
+                    send_telegram_message("SMA200 üstüne çıktı! SHORT pozisyon kapatılıyor.")
+                    close_position(current_pos)
+                    continue
 
                 if signal and signal != last_signal:
                     pending_signal = signal
@@ -159,12 +175,9 @@ def run_bot():
                         if current_pos:
                             close_position(current_pos)
                             time.sleep(1)
-
-                        # Mevcut fiyatı al
-                        ticker = session.get_ticker(category="linear", symbol=bybit_symbol)
-                        mark_price = float(ticker["result"]["list"][0]["markPrice"])
-                        open_position(pending_signal, mark_price)
-
+                        entry_price = get_last_price()
+                        if entry_price:
+                            open_position(pending_signal, entry_price)
                     pending_signal = None
                     pending_minute = None
 
