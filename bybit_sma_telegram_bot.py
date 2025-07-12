@@ -1,80 +1,81 @@
-from pybit.unified_trading import HTTP
+import requests
 import time
 from datetime import datetime, timezone
-import statistics
+from pybit.unified_trading import HTTP
 import os
-import requests
+import json
 
-# Bybit API
+# BYBIT API
 api_key = os.environ.get("BYBIT_API_KEY")
 api_secret = os.environ.get("BYBIT_API_SECRET")
-
-# Telegram
-TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
-TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
-
-# Sabitler
-symbol = "SUIUSDT"
-qty = 1000
-leverage = 50
-interval_minutes = 5
-
-# Canlı fiyat geçmişi
-price_history = []
-
 session = HTTP(testnet=False, api_key=api_key, api_secret=api_secret)
 
-def send_telegram_message(text):
-    try:
-        url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-        payload = {"chat_id": TELEGRAM_CHAT_ID, "text": text}
-        requests.post(url, data=payload)
-    except Exception as e:
-        print("Telegram hatası:", e)
+# Telegram
+telegram_token = os.environ.get("TELEGRAM_TOKEN")
+telegram_chat_id = os.environ.get("TELEGRAM_CHAT_ID")
 
-def set_leverage():
-    try:
-        session.set_leverage(category="linear", symbol=symbol, buy_leverage=leverage, sell_leverage=leverage)
-        print(f"Kaldıraç {leverage}x ayarlandı.")
-    except Exception as e:
-        print("Kaldıraç ayarlanamadı:", e)
+# Ayarlar
+symbol = "SUIUSDT"
+binance_symbol = "SUIUSDT"
+qty = 1000
+interval = "5m"
+limit = 30  # SMA21 için yeterli
 
-def get_live_price():
-    try:
-        return float(session.get_ticker(category="linear", symbol=symbol)["result"]["list"][0]["lastPrice"])
-    except Exception as e:
-        print("Fiyat alınamadı:", e)
-        return None
+def get_binance_klines(symbol, interval, limit):
+    url = f"https://api.binance.com/api/v3/klines?symbol={symbol}&interval={interval}&limit={limit}"
+    response = requests.get(url)
+    data = response.json()
+    closes = [float(candle[4]) for candle in data]
+    return closes
 
 def calculate_sma(data, period):
     if len(data) < period:
         return None
-    return statistics.mean(data[-period:])
+    return sum(data[-period:]) / period
 
-def get_position_side():
-    positions = session.get_positions(category="linear", symbol=symbol)["result"]["list"]
-    for pos in positions:
-        if float(pos["size"]) > 0:
-            return pos["side"]  # "Buy" or "Sell"
-    return None
+def get_signal():
+    closes = get_binance_klines(binance_symbol, interval, limit)
+    sma9 = calculate_sma(closes, 9)
+    sma21 = calculate_sma(closes, 21)
+    return sma9, sma21
+
+def send_telegram_message(message):
+    try:
+        url = f"https://api.telegram.org/bot{telegram_token}/sendMessage"
+        payload = {
+            "chat_id": telegram_chat_id,
+            "text": message,
+            "parse_mode": "Markdown"
+        }
+        requests.post(url, json=payload)
+    except Exception as e:
+        print("Telegram mesajı gönderilemedi:", e)
+
+def get_position():
+    try:
+        positions = session.get_positions(category="linear", symbol=symbol)["result"]["list"]
+        for p in positions:
+            if p["symbol"] == symbol:
+                size = float(p["size"])
+                side = "Buy" if float(p["side"].lower() == "buy") else "Sell"
+                return size, side
+        return 0, None
+    except:
+        return 0, None
 
 def close_position(current_side):
+    opposite = "Sell" if current_side == "Buy" else "Buy"
     try:
-        opposite = "Sell" if current_side == "Buy" else "Buy"
-        positions = session.get_positions(category="linear", symbol=symbol)["result"]["list"]
-        for pos in positions:
-            if float(pos["size"]) > 0:
-                session.place_order(
-                    category="linear",
-                    symbol=symbol,
-                    side=opposite,
-                    order_type="Market",
-                    qty=float(pos["size"]),
-                    time_in_force="GoodTillCancel",
-                    reduce_only=True
-                )
-                print("Pozisyon kapatıldı.")
-                return
+        session.place_order(
+            category="linear",
+            symbol=symbol,
+            side=opposite,
+            order_type="Market",
+            qty=qty,
+            time_in_force="GoodTillCancel",
+            reduce_only=True
+        )
+        print("Pozisyon kapatıldı.")
     except Exception as e:
         print("Pozisyon kapatma hatası:", e)
 
@@ -90,58 +91,39 @@ def place_order(side):
         )
         print(f"{side} emri gönderildi.")
     except Exception as e:
-        print("Emir hatası:", e)
+        print("Emir gönderilemedi:", e)
 
 def run_bot():
-    set_leverage()
-    print("📡 SMA Crossover botu başlatıldı.")
-
-    last_minute = -1
-    last_signal = None
+    print("⏳ Binance verisi ile Bybit botu başlatıldı.")
+    last_checked = -1
 
     while True:
         now = datetime.now(timezone.utc)
-        minute = now.minute
-        second = now.second
+        if now.minute % 5 == 0 and now.minute != last_checked and now.second == 0:
+            last_checked = now.minute
 
-        if minute % interval_minutes == 0 and second == 0 and minute != last_minute:
-            last_minute = minute
-
-            price = get_live_price()
-            if price is None:
-                continue
-
-            price_history.append(price)
-
-            sma9 = calculate_sma(price_history, 9)
-            sma21 = calculate_sma(price_history, 21)
-
+            sma9, sma21 = get_signal()
             if sma9 is None or sma21 is None:
-                print("SMA verileri yetersiz.")
+                print("SMA hesaplanamadı.")
                 continue
 
-            # Bildirim
-            msg = f"[{now.strftime('%H:%M:%S')}] Fiyat: {price:.4f}\nSMA9: {sma9:.4f} | SMA21: {sma21:.4f}"
-            print(msg)
-            send_telegram_message(msg)
+            message = f"*{now.strftime('%H:%M')} SMA Verileri:*\nSMA9: `{sma9:.4f}`\nSMA21: `{sma21:.4f}`"
+            send_telegram_message(message)
+            print(message)
 
-            # İşlem sinyali (önceki veriye göre)
-            if last_signal is not None:
-                current_position = get_position_side()
-                if last_signal == "Buy":
-                    if current_position == "Sell":
-                        close_position(current_position)
-                    place_order("Buy")
-                elif last_signal == "Sell":
-                    if current_position == "Buy":
-                        close_position(current_position)
-                    place_order("Sell")
+            signal = "Buy" if sma9 > sma21 else "Sell"
+            position_size, current_side = get_position()
 
-            # Yeni sinyal güncelle
-            if sma9 > sma21:
-                last_signal = "Buy"
-            elif sma9 < sma21:
-                last_signal = "Sell"
+            if current_side == signal:
+                print("Aynı yönde pozisyon var, işlem yapılmadı.")
+            else:
+                if position_size > 0:
+                    print("Pozisyon yönü ters, pozisyon kapatılıyor.")
+                    close_position(current_side)
+                    time.sleep(2)
+                print(f"Yeni işlem açılıyor: {signal}")
+                place_order(signal)
+                send_telegram_message(f"*Yeni Pozisyon Açıldı: {signal}*")
 
         time.sleep(1)
 
