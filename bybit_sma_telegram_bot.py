@@ -58,12 +58,7 @@ def get_position():
 
 def close_position(current_pos):
     try:
-        if current_pos == "long":
-            side = "Sell"
-        elif current_pos == "short":
-            side = "Buy"
-        else:
-            return
+        side = "Sell" if current_pos == "long" else "Buy"
         session.place_order(
             category="linear",
             symbol=symbol,
@@ -77,21 +72,22 @@ def close_position(current_pos):
     except Exception as e:
         print("Pozisyon kapatma hatası:", e)
 
-def place_limit_order(direction, price):
+def open_market_order(direction, price):
     try:
+        side = "Buy" if direction == "long" else "Sell"
         tp = round(price + 0.03, 4) if direction == "long" else round(price - 0.03, 4)
         sl = round(price - 0.01, 4) if direction == "long" else round(price + 0.01, 4)
-        side = "Buy" if direction == "long" else "Sell"
 
         session.place_order(
             category="linear",
             symbol=symbol,
             side=side,
-            order_type="Limit",
-            price=price,
+            order_type="Market",
             qty=qty,
             time_in_force="GoodTillCancel"
         )
+
+        time.sleep(1)  # Pozisyon açıldıktan sonra SL/TP tanımla
 
         session.set_trading_stop(
             category="linear",
@@ -100,13 +96,14 @@ def place_limit_order(direction, price):
             stop_loss=sl
         )
 
-        send_telegram_message(f"📥 {direction.upper()} açıldı | Fiyat: {price} | TP: {tp} | SL: {sl}")
+        send_telegram_message(f"📥 {direction.upper()} MARKET emri gönderildi | Fiyat: {price} | TP: {tp} | SL: {sl}")
+
     except Exception as e:
-        print("Limit emir açma hatası:", e)
+        print("Market emir açma hatası:", e)
 
 def run_bot():
     global last_signal
-    print("✅ Bot başlatıldı")
+    print("✅ Bot çalışıyor...")
 
     last_checked_minute = -1
 
@@ -134,21 +131,22 @@ def run_bot():
                 print(log)
                 send_telegram_message(log)
 
-                # sinyal kontrolü
+                # sinyal üret
                 signal = None
                 if sma100 > sma200:
                     signal = "long"
                 elif sma100 < sma200:
                     signal = "short"
 
+                # sinyal değiştiyse işlem yap
                 if signal and signal != last_signal:
                     current_pos = get_position()
 
                     if current_pos != signal:
                         if current_pos:
                             close_position(current_pos)
-                            time.sleep(2)
-                        place_limit_order(signal, round(price, 4))
+                            time.sleep(1)
+                        open_market_order(signal, price)
 
                     last_signal = signal
 
