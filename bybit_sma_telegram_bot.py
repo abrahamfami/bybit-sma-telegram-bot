@@ -13,7 +13,7 @@ TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
 
 # Sabitler
 symbol = "SUIUSDT"
-qty = 2000
+qty = 1000
 interval = "1m"
 bybit_symbol = "SUIUSDT"
 last_signal = None
@@ -88,8 +88,9 @@ def open_position(direction, current_price):
     try:
         side = "Buy" if direction == "long" else "Sell"
         tp_price = round(current_price + 0.03, 4) if direction == "long" else round(current_price - 0.03, 4)
+        sl_price = round(current_price - 0.02, 4) if direction == "long" else round(current_price + 0.02, 4)
 
-        # Market order
+        # Market order aç
         session.place_order(
             category="linear",
             symbol=bybit_symbol,
@@ -99,7 +100,7 @@ def open_position(direction, current_price):
             time_in_force="GoodTillCancel"
         )
 
-        # TP limit order
+        # TP: limit order
         session.place_order(
             category="linear",
             symbol=bybit_symbol,
@@ -111,7 +112,20 @@ def open_position(direction, current_price):
             reduce_only=True
         )
 
-        send_telegram_message(f"{direction.upper()} açıldı | TP: {tp_price}")
+        # SL: market trigger order
+        session.place_order(
+            category="linear",
+            symbol=bybit_symbol,
+            side="Sell" if direction == "long" else "Buy",
+            order_type="Market",
+            qty=qty,
+            trigger_direction=2 if direction == "long" else 1,
+            trigger_price=sl_price,
+            time_in_force="GoodTillCancel",
+            reduce_only=True
+        )
+
+        send_telegram_message(f"{direction.upper()} açıldı | TP: {tp_price} | SL: {sl_price}")
     except Exception as e:
         print("İşlem açma hatası:", e)
 
@@ -141,7 +155,6 @@ def run_bot():
                 print(log_msg)
                 send_telegram_message(log_msg)
 
-                # Yeni sinyal kontrolü
                 signal = None
                 if sma100 > sma200:
                     signal = "long"
@@ -153,7 +166,6 @@ def run_bot():
                     pending_minute = (now + timedelta(minutes=1)).minute
                     last_signal = signal
 
-                # İşlem açma zamanı
                 if pending_signal and current_minute == pending_minute:
                     current_pos = get_position()
                     if current_pos != pending_signal:
