@@ -13,7 +13,7 @@ TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
 
 # Sabitler
 symbol = "SUIUSDT"
-qty = 1000
+qty = 2000
 interval = "1m"
 bybit_symbol = "SUIUSDT"
 last_signal = None
