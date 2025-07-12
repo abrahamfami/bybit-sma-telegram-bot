@@ -1,51 +1,82 @@
-
 from pybit.unified_trading import HTTP
 import pandas as pd
 import time
 from datetime import datetime, timezone
-import os
 import requests
+import os
 
+# API anahtarları (Render'da environment variable olarak tanımlanmalı)
 api_key = os.environ.get("BYBIT_API_KEY")
 api_secret = os.environ.get("BYBIT_API_SECRET")
 telegram_token = os.environ.get("TELEGRAM_BOT_TOKEN")
 telegram_chat_id = os.environ.get("TELEGRAM_CHAT_ID")
 
+# Bybit oturumu
 session = HTTP(testnet=False, api_key=api_key, api_secret=api_secret)
 
+# Parametreler
 symbol = "SUIUSDT"
 qty = 10
 leverage = 50
 interval = "5"
 
-pozisyon = None
+# Pozisyon yönü takibi
+current_position = None  # "long", "short", or None
 
 def send_telegram_message(message):
-    url = f"https://api.telegram.org/bot{telegram_token}/sendMessage"
-    data = {"chat_id": telegram_chat_id, "text": message}
     try:
-        requests.post(url, data=data)
+        url = f"https://api.telegram.org/bot{telegram_token}/sendMessage"
+        payload = {
+            "chat_id": telegram_chat_id,
+            "text": message
+        }
+        requests.post(url, data=payload)
     except Exception as e:
-        print("Telegram mesajı gönderilemedi:", e)
+        print("Telegram gönderim hatası:", e)
 
 def set_leverage():
     try:
-        session.set_leverage(category="linear", symbol=symbol, buy_leverage=leverage, sell_leverage=leverage)
+        session.set_leverage(category="linear", symbol=symbol,
+                             buy_leverage=leverage, sell_leverage=leverage)
+        print(f"Kaldıraç {leverage}x ayarlandı.")
     except Exception as e:
         print("Kaldıraç ayarlanamadı:", e)
 
-def get_sma_values():
-    candles = session.get_kline(category="linear", symbol=symbol, interval=interval, limit=30)["result"]["list"]
+def get_sma_signal():
+    candles = session.get_kline(category="linear", symbol=symbol, interval=interval, limit=21)["result"]["list"]
     df = pd.DataFrame(candles)
     df.columns = ['timestamp', 'open', 'high', 'low', 'close', 'volume', 'turnover']
     df['close'] = df['close'].astype(float)
+
     sma9 = df['close'].rolling(window=9).mean().iloc[-2]
     sma21 = df['close'].rolling(window=21).mean().iloc[-2]
-    return sma9, sma21
+    close = df['close'].iloc[-2]
+
+    return close, sma9, sma21
+
+def close_all_positions():
+    try:
+        positions = session.get_positions(category="linear", symbol=symbol)["result"]["list"]
+        for pos in positions:
+            size = float(pos['size'])
+            side = pos['side']
+            if size > 0:
+                opposite = "Sell" if side == "Buy" else "Buy"
+                session.place_order(
+                    category="linear",
+                    symbol=symbol,
+                    side=opposite,
+                    order_type="Market",
+                    qty=size,
+                    time_in_force="GoodTillCancel"
+                )
+                print(f"Pozisyon kapatıldı: {side} {size}")
+    except Exception as e:
+        print("Pozisyon kapatma hatası:", e)
 
 def place_order(side):
     try:
-        response = session.place_order(
+        session.place_order(
             category="linear",
             symbol=symbol,
             side=side,
@@ -53,51 +84,43 @@ def place_order(side):
             qty=qty,
             time_in_force="GoodTillCancel"
         )
-        send_telegram_message(f"{side} emri gönderildi: {response}")
+        print(f"{side} emri gönderildi.")
     except Exception as e:
-        send_telegram_message("Emir gönderilemedi: " + str(e))
-
-def pozisyonu_kapat():
-    try:
-        position_info = session.get_positions(category="linear", symbol=symbol)["result"]["list"][0]
-        pozisyon_miktar = float(position_info["size"])
-        pozisyon_tipi = position_info["side"]
-        if pozisyon_miktar > 0:
-            ters_yon = "Sell" if pozisyon_tipi == "Buy" else "Buy"
-            response = session.place_order(
-                category="linear",
-                symbol=symbol,
-                side=ters_yon,
-                order_type="Market",
-                qty=pozisyon_miktar,
-                time_in_force="GoodTillCancel"
-            )
-            send_telegram_message(f"Pozisyon kapatıldı: {ters_yon} {pozisyon_miktar}")
-    except Exception as e:
-        send_telegram_message("Pozisyon kapatılamadı: " + str(e))
+        print("Emir gönderilemedi:", e)
 
 def run_bot():
-    global pozisyon
+    global current_position
     set_leverage()
-    send_telegram_message("📡 SMA Crossover botu başlatıldı.")
+    print("SMA9 / SMA21 botu başlatıldı (her dakika kontrol).")
+
     while True:
         now = datetime.now(timezone.utc)
-        if now.minute % 5 == 0 and now.second == 0:
+        if now.second == 0:
             try:
-                sma9, sma21 = get_sma_values()
-                send_telegram_message(f"[{now.strftime('%H:%M:%S')}] SMA9: {sma9:.4f}, SMA21: {sma21:.4f}")
-                if sma9 < sma21 and pozisyon != "LONG":
-                    pozisyonu_kapat()
+                close, sma9, sma21 = get_sma_signal()
+
+                # Telegram bildirimi
+                msg = f"[{now.strftime('%H:%M:%S')}] Close: {close:.4f}\nSMA9: {sma9:.4f}\nSMA21: {sma21:.4f}"
+                send_telegram_message(msg)
+
+                # Sinyal kontrolü ve pozisyon yönetimi
+                if sma9 > sma21 and current_position != "long":
+                    close_all_positions()
                     place_order("Buy")
-                    pozisyon = "LONG"
-                elif sma9 > sma21 and pozisyon != "SHORT":
-                    pozisyonu_kapat()
+                    current_position = "long"
+                    send_telegram_message("📈 SMA9 > SMA21 → LONG açıldı.")
+
+                elif sma9 < sma21 and current_position != "short":
+                    close_all_positions()
                     place_order("Sell")
-                    pozisyon = "SHORT"
-                time.sleep(5)
+                    current_position = "short"
+                    send_telegram_message("📉 SMA9 < SMA21 → SHORT açıldı.")
+
+                else:
+                    print("Pozisyon değişmedi.")
             except Exception as e:
-                send_telegram_message("Genel HATA: " + str(e))
-        time.sleep(0.5)
+                print("HATA:", e)
+        time.sleep(1)
 
 if __name__ == "__main__":
     run_bot()
