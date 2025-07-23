@@ -14,7 +14,7 @@ TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
 # Sabitler
 symbol_binance = "SUIUSDT"
 symbol_bybit = "SUIUSDT"
-qty = 10
+qty = 30
 interval = "5m"
 
 session = HTTP(testnet=False, api_key=BYBIT_API_KEY, api_secret=BYBIT_API_SECRET)
