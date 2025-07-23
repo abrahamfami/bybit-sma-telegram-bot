@@ -43,7 +43,7 @@ def fetch_binance_ema():
 def open_position(direction):
     try:
         side = "Buy" if direction == "long" else "Sell"
-        order = session.place_order(
+        session.place_order(
             category="linear",
             symbol=symbol_bybit,
             side=side,
@@ -56,7 +56,7 @@ def open_position(direction):
         print("İşlem açma hatası:", e)
 
 def run_bot():
-    print("🚀 EMA21 basit strateji başlatıldı")
+    print("🚀 EMA21 TERS strateji başlatıldı")
     last_minute = -1
 
     while True:
@@ -73,7 +73,8 @@ def run_bot():
                 print(log)
                 send_telegram(log)
 
-                direction = "long" if price < ema21 else "short"
+                # EMA21'in üstünde ise long, altında ise short aç
+                direction = "long" if price > ema21 else "short"
                 open_position(direction)
 
             except Exception as e:
