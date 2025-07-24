@@ -12,7 +12,7 @@ TELEGRAM_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
 
 symbol = "SUIUSDT"
-qty = 30
+qty = 10
 interval = "5m"
 
 session = HTTP(testnet=False, api_key=BYBIT_API_KEY, api_secret=BYBIT_API_SECRET)
@@ -38,7 +38,7 @@ def fetch_binance_data(symbol, interval="5m", limit=100):
     df["close"] = df["close"].astype(float)
     return df
 
-def calculate_ema(df, period=21):
+def calculate_ema(df, period):
     return df["close"].ewm(span=period, adjust=False).mean()
 
 def get_live_price(symbol="SUIUSDT"):
@@ -68,7 +68,7 @@ def place_order(direction):
         print("İşlem açılamadı:", e)
 
 def run_bot():
-    print("📡 Bot başlatıldı...")
+    print("📡 EMA21/EMA50 BOT BAŞLADI")
     last_minute = -1
     while True:
         now = datetime.now(timezone.utc)
@@ -76,19 +76,20 @@ def run_bot():
             last_minute = now.minute
             try:
                 df = fetch_binance_data(symbol)
-                ema21 = calculate_ema(df).iloc[-1]
+                ema21 = calculate_ema(df, 21).iloc[-1]
+                ema50 = calculate_ema(df, 50).iloc[-1]
                 price = get_live_price(symbol)
 
-                if price is None or pd.isna(ema21):
+                if price is None or pd.isna(ema21) or pd.isna(ema50):
                     continue
 
-                log = f"[{now.strftime('%H:%M')}] EMA21: {ema21:.4f} | Fiyat: {price:.4f}"
+                log = f"[{now.strftime('%H:%M')}] EMA21: {ema21:.4f} | EMA50: {ema50:.4f} | Fiyat: {price:.4f}"
                 print(log)
                 send_telegram_message(log)
 
-                if price > ema21:
+                if ema21 > ema50:
                     place_order("long")
-                elif price < ema21:
+                elif ema50 > ema21:
                     place_order("short")
 
             except Exception as e:
