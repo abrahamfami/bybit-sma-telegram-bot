@@ -12,7 +12,7 @@ TELEGRAM_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
 
 symbol = "SUIUSDT"
-qty = 10
+qty = 30
 interval = "5m"  # Binance'ten veri çekerken kullanılacak zaman aralığı
 
 # Bybit API bağlantısı
