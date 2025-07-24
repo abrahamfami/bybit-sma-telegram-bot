@@ -12,7 +12,8 @@ TELEGRAM_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
 
 symbol = "SUIUSDT"
-qty = 30  # Pozisyon miktarı
+qty = 10
+interval = "5m"  # Binance'ten veri çekerken kullanılacak zaman aralığı
 
 # Bybit API bağlantısı
 session = HTTP(testnet=False, api_key=BYBIT_API_KEY, api_secret=BYBIT_API_SECRET)
@@ -55,13 +56,7 @@ def get_current_position():
 
 def close_position(current_pos):
     try:
-        if current_pos == "long":
-            side = "Sell"
-        elif current_pos == "short":
-            side = "Buy"
-        else:
-            return
-
+        side = "Sell" if current_pos == "long" else "Buy"
         session.place_order(
             category="linear",
             symbol=symbol,
@@ -99,7 +94,7 @@ def run_bot():
         if now.minute % 5 == 0 and now.minute != last_checked_minute and now.second == 0:
             last_checked_minute = now.minute
             try:
-                df = fetch_binance_data()
+                df = fetch_binance_data(symbol=symbol, interval=interval)
                 df["ema21"] = calculate_ema(df["close"], 21)
                 df["ema50"] = calculate_ema(df["close"], 50)
 
@@ -121,7 +116,6 @@ def run_bot():
                     time.sleep(1)
                     open_position(signal)
                 else:
-                    # Aynı yönde: pozisyon artır
                     open_position(signal)
 
             except Exception as e:
