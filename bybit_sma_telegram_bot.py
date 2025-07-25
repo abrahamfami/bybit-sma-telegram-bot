@@ -13,7 +13,7 @@ TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
 
 symbol = "SUIUSDT"
 qty = 100
-interval = "5m"
+interval = "1m"
 
 session = HTTP(testnet=False, api_key=BYBIT_API_KEY, api_secret=BYBIT_API_SECRET)
 
@@ -25,7 +25,7 @@ def send_telegram_message(text):
     except Exception as e:
         print("Telegram mesajı gönderilemedi:", e)
 
-def fetch_binance_data(symbol, interval="5m", limit=100):
+def fetch_binance_data(symbol, interval="1m", limit=100):
     url = f"https://api.binance.com/api/v3/klines"
     params = {"symbol": symbol.upper(), "interval": interval, "limit": limit}
     response = requests.get(url, params=params)
@@ -62,10 +62,10 @@ def run_bot():
     last_minute = -1
     while True:
         now = datetime.now(timezone.utc)
-        if now.minute % 5 == 0 and now.minute != last_minute and now.second == 0:
+        if now.minute != last_minute and now.second == 0:
             last_minute = now.minute
             try:
-                df = fetch_binance_data(symbol)
+                df = fetch_binance_data(symbol, interval="1m")
                 ema21 = calculate_ema(df, 21).iloc[-1]
                 ema34 = calculate_ema(df, 34).iloc[-1]
 
