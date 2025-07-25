@@ -25,7 +25,7 @@ def send_telegram_message(text):
     except Exception as e:
         print("Telegram mesajı gönderilemedi:", e)
 
-def fetch_binance_data(symbol, interval="1m", limit=100):
+def fetch_binance_data(symbol, interval="1m", limit=250):
     url = f"https://api.binance.com/api/v3/klines"
     params = {"symbol": symbol.upper(), "interval": interval, "limit": limit}
     response = requests.get(url, params=params)
@@ -58,7 +58,7 @@ def place_order(direction):
         print("İşlem açılamadı:", e)
 
 def run_bot():
-    print("📡 Bot başlatıldı...")
+    print("📡 EMA100/200 Bot başlatıldı...")
     last_minute = -1
     last_signal = None
     crossover_time = None
@@ -68,24 +68,24 @@ def run_bot():
         if now.minute != last_minute and now.second == 0:
             last_minute = now.minute
             try:
-                df = fetch_binance_data(symbol, interval="1m")
-                ema21 = calculate_ema(df, 21).iloc[-1]
-                ema34 = calculate_ema(df, 34).iloc[-1]
+                df = fetch_binance_data(symbol, interval="1m", limit=250)
+                ema100 = calculate_ema(df, 100).iloc[-1]
+                ema200 = calculate_ema(df, 200).iloc[-1]
 
-                log = f"[{now.strftime('%H:%M')}] EMA21: {ema21:.4f} | EMA34: {ema34:.4f}"
+                log = f"[{now.strftime('%H:%M')}] EMA100: {ema100:.4f} | EMA200: {ema200:.4f}"
                 print(log)
                 send_telegram_message(log)
 
-                signal = "long" if ema21 > ema34 else "short"
+                signal = "long" if ema100 > ema200 else "short"
 
                 # Kesişim tespiti
                 if signal != last_signal:
                     crossover_time = now
                     last_signal = signal
-                    print("🔁 Crossover tespit edildi:", signal)
+                    print("🔁 EMA100/200 crossover:", signal)
                     send_telegram_message(f"Kesişim: {signal.upper()}")
 
-                # Crossover sonrası 50 dakikada islem aç
+                # Crossover sonrası 50 dakikada işlem aç
                 if crossover_time is not None:
                     minutes_since_crossover = (now - crossover_time).total_seconds() / 60
                     if minutes_since_crossover <= 50:
