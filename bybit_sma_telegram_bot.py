@@ -60,8 +60,8 @@ def place_order(direction):
 def run_bot():
     print("📡 Bot başlatıldı...")
     last_minute = -1
-    last_trend = None
-    crossover_minute = None
+    last_signal = None
+    crossover_time = None
 
     while True:
         now = datetime.now(timezone.utc)
@@ -72,26 +72,24 @@ def run_bot():
                 ema21 = calculate_ema(df, 21).iloc[-1]
                 ema34 = calculate_ema(df, 34).iloc[-1]
 
-                # Trend tespiti
-                current_trend = "long" if ema21 > ema34 else "short"
-
-                # Crossover kontrolü
-                if current_trend != last_trend:
-                    crossover_minute = now
-                    last_trend = current_trend
-                    print("🔁 Crossover algılandı:", current_trend)
-
-                # Kaç dakika geçtiğini hesapla
-                minutes_since_crossover = (now - crossover_minute).total_seconds() / 60 if crossover_minute else None
-
-                # Log
-                log = f"[{now.strftime('%H:%M')}] EMA21: {ema21:.4f} | EMA34: {ema34:.4f} | Trend: {current_trend} | Kesişimden sonra geçen dakika: {minutes_since_crossover:.1f}" if minutes_since_crossover else "Bekleniyor..."
+                log = f"[{now.strftime('%H:%M')}] EMA21: {ema21:.4f} | EMA34: {ema34:.4f}"
                 print(log)
                 send_telegram_message(log)
 
-                # Sadece crossover'dan sonra 10 dakikadan küçükse işlem aç
-                if minutes_since_crossover is not None and minutes_since_crossover <= 10:
-                    place_order(current_trend)
+                signal = "long" if ema21 > ema34 else "short"
+
+                # Kesişim tespiti
+                if signal != last_signal:
+                    crossover_time = now
+                    last_signal = signal
+                    print("🔁 Crossover tespit edildi:", signal)
+                    send_telegram_message(f"Kesişim: {signal.upper()}")
+
+                # Crossover sonrası 50 dakikada islem aç
+                if crossover_time is not None:
+                    minutes_since_crossover = (now - crossover_time).total_seconds() / 60
+                    if minutes_since_crossover <= 50:
+                        place_order(signal)
 
             except Exception as e:
                 print("Hata:", e)
