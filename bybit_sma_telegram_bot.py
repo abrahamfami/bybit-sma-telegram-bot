@@ -12,18 +12,10 @@ TELEGRAM_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
 
 symbol = "SUIUSDT"
-qty = 500
+qty = 1000
 interval = "1m"
 
 session = HTTP(testnet=False, api_key=BYBIT_API_KEY, api_secret=BYBIT_API_SECRET)
-
-# ✅ TradingView ile birebir uyumlu EMA hesaplaması
-def pine_ema(prices, period):
-    alpha = 2 / (period + 1)
-    ema = [prices[0]]
-    for i in range(1, len(prices)):
-        ema.append((prices[i] * alpha) + (ema[-1] * (1 - alpha)))
-    return ema
 
 def send_telegram_message(text):
     try:
@@ -46,42 +38,54 @@ def fetch_binance_data(symbol, interval="1m", limit=250):
     df["close"] = df["close"].astype(float)
     return df
 
+def calculate_ema_tvstyle(close_prices, period):
+    ema = [close_prices[0]]
+    alpha = 2 / (period + 1)
+    for price in close_prices[1:]:
+        ema.append((price - ema[-1]) * alpha + ema[-1])
+    return pd.Series(ema, index=close_prices.index)
+
 def get_position():
     try:
         positions = session.get_positions(category="linear", symbol=symbol)["result"]["list"]
         for p in positions:
-            size = float(p["size"])
-            if size > 0:
-                return p["side"].lower()  # 'buy' veya 'sell'
+            if p["side"] == "Buy" and float(p["size"]) > 0:
+                return "long"
+            elif p["side"] == "Sell" and float(p["size"]) > 0:
+                return "short"
     except Exception as e:
         print("Pozisyon alınamadı:", e)
     return None
 
 def close_position(current_pos):
     try:
-        if current_pos == "buy":
-            side = "Sell"
-        elif current_pos == "sell":
-            side = "Buy"
-        else:
-            return
-
-        session.place_order(
-            category="linear",
-            symbol=symbol,
-            side=side,
-            order_type="Market",
-            qty=qty,
-            time_in_force="GoodTillCancel",
-            reduce_only=True
-        )
+        if current_pos == "long":
+            session.place_order(
+                category="linear",
+                symbol=symbol,
+                side="Sell",
+                order_type="Market",
+                qty=qty,
+                time_in_force="GoodTillCancel",
+                reduce_only=True
+            )
+        elif current_pos == "short":
+            session.place_order(
+                category="linear",
+                symbol=symbol,
+                side="Buy",
+                order_type="Market",
+                qty=qty,
+                time_in_force="GoodTillCancel",
+                reduce_only=True
+            )
         send_telegram_message(f"Pozisyon kapatıldı: {current_pos.upper()}")
     except Exception as e:
         print("Pozisyon kapatma hatası:", e)
 
 def open_position(direction):
-    side = "Buy" if direction == "long" else "Sell"
     try:
+        side = "Buy" if direction == "long" else "Sell"
         session.place_order(
             category="linear",
             symbol=symbol,
@@ -92,21 +96,19 @@ def open_position(direction):
         )
         send_telegram_message(f"Yeni işlem açıldı: {direction.upper()}")
     except Exception as e:
-        print("İşlem açılamadı:", e)
+        print("İşlem açma hatası:", e)
 
 def run_bot():
-    print("🚀 EMA100/200 Bot başlatıldı...")
+    print("🚀 EMA100/200 TradingView Stili Bot Başlatıldı")
     last_signal = None
-
     while True:
         now = datetime.now(timezone.utc)
         if now.second == 0:
             try:
                 df = fetch_binance_data(symbol, interval="1m", limit=250)
-                prices = df["close"].tolist()
-
-                ema100 = pine_ema(prices, 100)[-1]
-                ema200 = pine_ema(prices, 200)[-1]
+                close_prices = df["close"]
+                ema100 = calculate_ema_tvstyle(close_prices, 100).iloc[-1]
+                ema200 = calculate_ema_tvstyle(close_prices, 200).iloc[-1]
 
                 log = f"[{now.strftime('%H:%M')}] EMA100: {ema100:.4f} | EMA200: {ema200:.4f}"
                 print(log)
@@ -116,20 +118,10 @@ def run_bot():
 
                 if signal != last_signal:
                     current_pos = get_position()
-
-                    if current_pos == "buy" and signal == "short":
+                    if current_pos and current_pos != signal:
                         close_position(current_pos)
                         time.sleep(1)
-                        open_position("short")
-
-                    elif current_pos == "sell" and signal == "long":
-                        close_position(current_pos)
-                        time.sleep(1)
-                        open_position("long")
-
-                    elif current_pos is None:
-                        open_position(signal)
-
+                    open_position(signal)
                     last_signal = signal
 
             except Exception as e:
