@@ -13,10 +13,9 @@ TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
 
 symbol = "SUIUSDT"
 interval = "1m"
-order_size = 30        # ✅ HER işlemde 30 SUI
-max_position = 900     # ✅ 899’u aşınca pozisyon kapat
+order_size = 25        # ✅ HER işlemde 25 SUI
+max_position = 1000    # ✅ 1000’e ulaşıldığında pozisyon kapat
 
-# Bybit API bağlantısı
 session = HTTP(testnet=False, api_key=BYBIT_API_KEY, api_secret=BYBIT_API_SECRET)
 
 def send_telegram_message(text):
