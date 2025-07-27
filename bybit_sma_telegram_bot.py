@@ -12,7 +12,7 @@ TELEGRAM_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
 
 symbol = "SUIUSDT"
-qty = 20
+qty = 2000
 interval = "1m"
 
 session = HTTP(testnet=False, api_key=BYBIT_API_KEY, api_secret=BYBIT_API_SECRET)
@@ -58,15 +58,12 @@ def place_order(direction):
         print("İşlem açılamadı:", e)
 
 def run_bot():
-    print("📡 EMA100/200 Bot başlatıldı...")
-    last_minute = -1
+    print("📡 EMA100/200 crossover botu çalışıyor...")
     last_signal = None
-    crossover_time = None
 
     while True:
         now = datetime.now(timezone.utc)
-        if now.minute != last_minute and now.second == 0:
-            last_minute = now.minute
+        if now.second == 0:
             try:
                 df = fetch_binance_data(symbol, interval="1m", limit=250)
                 ema100 = calculate_ema(df, 100).iloc[-1]
@@ -76,20 +73,15 @@ def run_bot():
                 print(log)
                 send_telegram_message(log)
 
+                # Sinyal üretimi
                 signal = "long" if ema100 > ema200 else "short"
 
-                # Crossover tespiti
+                # Yalnızca crossover'da işlem aç
                 if signal != last_signal:
-                    crossover_time = now
                     last_signal = signal
-                    print("🔁 EMA100/200 crossover:", signal)
-                    send_telegram_message(f"Kesişim: {signal.upper()}")
-
-                # Crossover sonrası 130 dakikada işlem aç
-                if crossover_time is not None:
-                    minutes_since_crossover = (now - crossover_time).total_seconds() / 60
-                    if minutes_since_crossover <= 130:
-                        place_order(signal)
+                    print(f"🔁 Crossover tespit edildi → {signal.upper()} işlemi açılıyor.")
+                    send_telegram_message(f"🔁 Crossover: {signal.upper()}")
+                    place_order(signal)
 
             except Exception as e:
                 print("Hata:", e)
