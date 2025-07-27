@@ -78,17 +78,17 @@ def run_bot():
 
                 signal = "long" if ema100 > ema200 else "short"
 
-                # Kesişim tespiti
+                # Crossover tespiti
                 if signal != last_signal:
                     crossover_time = now
                     last_signal = signal
                     print("🔁 EMA100/200 crossover:", signal)
                     send_telegram_message(f"Kesişim: {signal.upper()}")
 
-                # Crossover sonrası 50 dakikada işlem aç
+                # Crossover sonrası 130 dakikada işlem aç
                 if crossover_time is not None:
                     minutes_since_crossover = (now - crossover_time).total_seconds() / 60
-                    if minutes_since_crossover <= 50:
+                    if minutes_since_crossover <= 130:
                         place_order(signal)
 
             except Exception as e:
