@@ -5,15 +5,26 @@ from datetime import datetime, timezone
 import time
 import os
 
-# API anahtarları
+# Ortam değişkenleri
 BYBIT_API_KEY = os.environ.get("BYBIT_API_KEY")
 BYBIT_API_SECRET = os.environ.get("BYBIT_API_SECRET")
+TELEGRAM_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
+TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
+
 symbol = "SUIUSDT"
 interval = "1m"
-order_size = 25
+order_size = 20
 max_position = 1000
 
 session = HTTP(testnet=False, api_key=BYBIT_API_KEY, api_secret=BYBIT_API_SECRET)
+
+def send_telegram_message(text):
+    try:
+        url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
+        data = {"chat_id": TELEGRAM_CHAT_ID, "text": text}
+        requests.post(url, data=data)
+    except Exception as e:
+        print("Telegram mesajı gönderilemedi:", e)
 
 def fetch_binance_klines(symbol, interval="1m", limit=100):
     url = "https://api.binance.com/api/v3/klines"
@@ -60,21 +71,26 @@ def close_position(current_side):
             time_in_force="GoodTillCancel",
             reduce_only=True
         )
-        print(f"Pozisyon kapatıldı ({current_side})")
+        msg = f"Pozisyon kapatıldı ({current_side})"
+        print(msg)
+        send_telegram_message(msg)
     except Exception as e:
         print("Pozisyon kapatılamadı:", e)
 
 def open_order(direction):
+    side = "Buy" if direction == "long" else "Sell"
     try:
         session.place_order(
             category="linear",
             symbol=symbol,
-            side="Buy" if direction == "long" else "Sell",
+            side=side,
             order_type="Market",
             qty=order_size,
             time_in_force="GoodTillCancel"
         )
-        print(f"{direction.upper()} işlemi açıldı (qty: {order_size})")
+        msg = f"{direction.upper()} işlemi açıldı (qty: {order_size})"
+        print(msg)
+        send_telegram_message(msg)
     except Exception as e:
         print("İşlem açılamadı:", e)
 
@@ -93,10 +109,12 @@ def run_bot():
                 if price is None or pd.isna(ema21):
                     continue
 
-                print(f"[{now.strftime('%H:%M')}] EMA21: {ema21:.4f} | Fiyat: {price:.4f}")
-
                 direction = "long" if price > ema21 else "short"
                 size, side = get_position_info()
+
+                log = f"[{now.strftime('%H:%M')}] EMA21: {ema21:.4f} | Fiyat: {price:.4f} | Yön: {direction.upper()}"
+                print(log)
+                send_telegram_message(log)
 
                 if size >= max_position:
                     close_position("Buy" if side == "long" else "Sell")
