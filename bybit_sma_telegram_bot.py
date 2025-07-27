@@ -12,8 +12,8 @@ TELEGRAM_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
 
 symbol = "SUIUSDT"
-qty = 30  # her işlemde açılacak pozisyon
-max_position = 1199  # maksimum toplam pozisyon büyüklüğü
+qty = 30  # Her işlemde açılacak miktar
+max_position = 899  # Maksimum toplam pozisyon büyüklüğü
 interval = "1m"
 
 session = HTTP(testnet=False, api_key=BYBIT_API_KEY, api_secret=BYBIT_API_SECRET)
@@ -112,12 +112,10 @@ def run_bot():
                     signal = None
 
                 if signal:
-                    # Aktif pozisyon varsa ve toplam pozisyon çok büyükse kapat
                     if current_size > max_position:
                         close_position(current_side.capitalize(), current_size)
                         time.sleep(1)
 
-                    # Pozisyon büyüklüğü yeterliyse yeni işlem aç
                     place_order(signal)
 
             except Exception as e:
