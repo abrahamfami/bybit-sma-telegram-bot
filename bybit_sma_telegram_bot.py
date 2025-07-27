@@ -12,7 +12,7 @@ TELEGRAM_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
 
 symbol = "SUIUSDT"
-qty = 2000
+qty = 1000  # Güncellendi
 interval = "1m"
 
 session = HTTP(testnet=False, api_key=BYBIT_API_KEY, api_secret=BYBIT_API_SECRET)
@@ -40,6 +40,33 @@ def fetch_binance_data(symbol, interval="1m", limit=250):
 
 def calculate_ema(df, period):
     return df["close"].ewm(span=period, adjust=False).mean()
+
+def get_active_position():
+    try:
+        positions = session.get_positions(category="linear", symbol=symbol)["result"]["list"]
+        for p in positions:
+            if float(p["size"]) > 0:
+                return p["side"].lower()  # "Buy" -> "buy", "Sell" -> "sell"
+    except Exception as e:
+        print("Pozisyon sorgulanamadı:", e)
+    return None
+
+def close_position(side):
+    reverse = "Sell" if side == "buy" else "Buy"
+    try:
+        session.place_order(
+            category="linear",
+            symbol=symbol,
+            side=reverse,
+            order_type="Market",
+            qty=qty,
+            time_in_force="GoodTillCancel",
+            reduce_only=True
+        )
+        print(f"{side.upper()} pozisyonu kapatıldı.")
+        send_telegram_message(f"{side.upper()} pozisyonu kapatıldı.")
+    except Exception as e:
+        print("Pozisyon kapatılamadı:", e)
 
 def place_order(direction):
     side = "Buy" if direction == "long" else "Sell"
@@ -73,15 +100,21 @@ def run_bot():
                 print(log)
                 send_telegram_message(log)
 
-                # Sinyal üretimi
+                # Yeni sinyali belirle
                 signal = "long" if ema100 > ema200 else "short"
 
-                # Yalnızca crossover'da işlem aç
                 if signal != last_signal:
-                    last_signal = signal
-                    print(f"🔁 Crossover tespit edildi → {signal.upper()} işlemi açılıyor.")
+                    print(f"🔁 Crossover tespit edildi → {signal.upper()}")
                     send_telegram_message(f"🔁 Crossover: {signal.upper()}")
+
+                    active_pos = get_active_position()
+                    if active_pos:
+                        if (signal == "long" and active_pos == "sell") or (signal == "short" and active_pos == "buy"):
+                            close_position(active_pos)
+                            time.sleep(1)
+
                     place_order(signal)
+                    last_signal = signal
 
             except Exception as e:
                 print("Hata:", e)
