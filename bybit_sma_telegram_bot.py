@@ -12,10 +12,18 @@ TELEGRAM_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
 
 symbol = "SUIUSDT"
-qty = 1000  # Güncellendi
+qty = 500
 interval = "1m"
 
 session = HTTP(testnet=False, api_key=BYBIT_API_KEY, api_secret=BYBIT_API_SECRET)
+
+# ✅ TradingView ile birebir uyumlu EMA hesaplaması
+def pine_ema(prices, period):
+    alpha = 2 / (period + 1)
+    ema = [prices[0]]
+    for i in range(1, len(prices)):
+        ema.append((prices[i] * alpha) + (ema[-1] * (1 - alpha)))
+    return ema
 
 def send_telegram_message(text):
     try:
@@ -38,37 +46,40 @@ def fetch_binance_data(symbol, interval="1m", limit=250):
     df["close"] = df["close"].astype(float)
     return df
 
-def calculate_ema(df, period):
-    return df["close"].ewm(span=period, adjust=False).mean()
-
-def get_active_position():
+def get_position():
     try:
         positions = session.get_positions(category="linear", symbol=symbol)["result"]["list"]
         for p in positions:
-            if float(p["size"]) > 0:
-                return p["side"].lower()  # "Buy" -> "buy", "Sell" -> "sell"
+            size = float(p["size"])
+            if size > 0:
+                return p["side"].lower()  # 'buy' veya 'sell'
     except Exception as e:
-        print("Pozisyon sorgulanamadı:", e)
+        print("Pozisyon alınamadı:", e)
     return None
 
-def close_position(side):
-    reverse = "Sell" if side == "buy" else "Buy"
+def close_position(current_pos):
     try:
+        if current_pos == "buy":
+            side = "Sell"
+        elif current_pos == "sell":
+            side = "Buy"
+        else:
+            return
+
         session.place_order(
             category="linear",
             symbol=symbol,
-            side=reverse,
+            side=side,
             order_type="Market",
             qty=qty,
             time_in_force="GoodTillCancel",
             reduce_only=True
         )
-        print(f"{side.upper()} pozisyonu kapatıldı.")
-        send_telegram_message(f"{side.upper()} pozisyonu kapatıldı.")
+        send_telegram_message(f"Pozisyon kapatıldı: {current_pos.upper()}")
     except Exception as e:
-        print("Pozisyon kapatılamadı:", e)
+        print("Pozisyon kapatma hatası:", e)
 
-def place_order(direction):
+def open_position(direction):
     side = "Buy" if direction == "long" else "Sell"
     try:
         session.place_order(
@@ -79,13 +90,12 @@ def place_order(direction):
             qty=qty,
             time_in_force="GoodTillCancel"
         )
-        print(f"{direction.upper()} işlemi açıldı.")
-        send_telegram_message(f"{direction.upper()} işlemi açıldı.")
+        send_telegram_message(f"Yeni işlem açıldı: {direction.upper()}")
     except Exception as e:
         print("İşlem açılamadı:", e)
 
 def run_bot():
-    print("📡 EMA100/200 crossover botu çalışıyor...")
+    print("🚀 EMA100/200 Bot başlatıldı...")
     last_signal = None
 
     while True:
@@ -93,27 +103,33 @@ def run_bot():
         if now.second == 0:
             try:
                 df = fetch_binance_data(symbol, interval="1m", limit=250)
-                ema100 = calculate_ema(df, 100).iloc[-1]
-                ema200 = calculate_ema(df, 200).iloc[-1]
+                prices = df["close"].tolist()
+
+                ema100 = pine_ema(prices, 100)[-1]
+                ema200 = pine_ema(prices, 200)[-1]
 
                 log = f"[{now.strftime('%H:%M')}] EMA100: {ema100:.4f} | EMA200: {ema200:.4f}"
                 print(log)
                 send_telegram_message(log)
 
-                # Yeni sinyali belirle
                 signal = "long" if ema100 > ema200 else "short"
 
                 if signal != last_signal:
-                    print(f"🔁 Crossover tespit edildi → {signal.upper()}")
-                    send_telegram_message(f"🔁 Crossover: {signal.upper()}")
+                    current_pos = get_position()
 
-                    active_pos = get_active_position()
-                    if active_pos:
-                        if (signal == "long" and active_pos == "sell") or (signal == "short" and active_pos == "buy"):
-                            close_position(active_pos)
-                            time.sleep(1)
+                    if current_pos == "buy" and signal == "short":
+                        close_position(current_pos)
+                        time.sleep(1)
+                        open_position("short")
 
-                    place_order(signal)
+                    elif current_pos == "sell" and signal == "long":
+                        close_position(current_pos)
+                        time.sleep(1)
+                        open_position("long")
+
+                    elif current_pos is None:
+                        open_position(signal)
+
                     last_signal = signal
 
             except Exception as e:
