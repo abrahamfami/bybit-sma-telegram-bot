@@ -13,8 +13,8 @@ TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
 
 symbol = "SUIUSDT"
 interval = "1m"
-order_size = 25  # Güncellendi: Her işlem 25 SUI
-max_position = 1000  # Maksimum pozisyon büyüklüğü
+order_size = 25
+max_position = 1000
 
 session = HTTP(testnet=False, api_key=BYBIT_API_KEY, api_secret=BYBIT_API_SECRET)
 
@@ -26,14 +26,15 @@ def send_telegram_message(text):
     except Exception as e:
         print("Telegram mesajı gönderilemedi:", e)
 
-def fetch_binance_klines(symbol, interval="1m", limit=100):
-    url = "https://api.binance.com/api/v3/klines"
+def fetch_binance_data(symbol, interval="1m", limit=100):
+    url = f"https://api.binance.com/api/v3/klines"
     params = {"symbol": symbol.upper(), "interval": interval, "limit": limit}
     response = requests.get(url, params=params)
     data = response.json()
     df = pd.DataFrame(data, columns=[
-        "timestamp", "open", "high", "low", "close", "volume", "close_time",
-        "quote_asset_volume", "number_of_trades", "taker_buy_base", "taker_buy_quote", "ignore"
+        "timestamp", "open", "high", "low", "close",
+        "volume", "close_time", "quote_asset_volume",
+        "number_of_trades", "taker_buy_base", "taker_buy_quote", "ignore"
     ])
     df["close"] = df["close"].astype(float)
     return df
@@ -41,41 +42,33 @@ def fetch_binance_klines(symbol, interval="1m", limit=100):
 def calculate_ema(df, period):
     return df["close"].ewm(span=period, adjust=False).mean()
 
-def get_live_price(symbol="SUIUSDT"):
+def get_position():
     try:
-        response = requests.get(f"https://api.binance.com/api/v3/ticker/price?symbol={symbol}")
-        return float(response.json()["price"])
-    except:
-        return None
-
-def get_position_info():
-    try:
-        result = session.get_positions(category="linear", symbol=symbol)
-        pos_data = result['result']['list'][0]
-        size = float(pos_data['size'])
-        side = pos_data['side']
-        return size, side
+        positions = session.get_positions(category="linear", symbol=symbol)["result"]["list"]
+        for p in positions:
+            side = p["side"]
+            size = float(p["size"])
+            if size > 0:
+                return side.lower(), size
     except Exception as e:
-        print("Pozisyon bilgisi alınamadı:", e)
-        return 0.0, None
+        print("Pozisyon sorgulanamadı:", e)
+    return None, 0
 
 def close_position(current_side):
     try:
-        opposite = "Sell" if current_side == "Buy" else "Buy"
+        close_side = "Sell" if current_side == "buy" else "Buy"
         session.place_order(
             category="linear",
             symbol=symbol,
-            side=opposite,
+            side=close_side,
             order_type="Market",
             qty=max_position,
             time_in_force="GoodTillCancel",
             reduce_only=True
         )
-        msg = f"Pozisyon kapatıldı ({current_side})"
-        print(msg)
-        send_telegram_message(msg)
+        send_telegram_message(f"Pozisyon kapatıldı: {current_side.upper()}")
     except Exception as e:
-        print("Pozisyon kapatılamadı:", e)
+        print("Pozisyon kapatma hatası:", e)
 
 def open_order(direction):
     side = "Buy" if direction == "long" else "Sell"
@@ -95,7 +88,7 @@ def open_order(direction):
         print("İşlem açılamadı:", e)
 
 def run_bot():
-    print("📡 Bot başlatıldı...")
+    print("🚀 Bot başlatıldı...")
     last_minute = -1
 
     while True:
@@ -103,27 +96,26 @@ def run_bot():
         if now.minute != last_minute and now.second == 0:
             last_minute = now.minute
             try:
-                df = fetch_binance_klines(symbol, interval, limit=100)
+                df = fetch_binance_data(symbol, interval="1m", limit=100)
                 ema21 = calculate_ema(df, 21).iloc[-1]
-                price = get_live_price(symbol)
-                if price is None or pd.isna(ema21):
-                    continue
+                price = df["close"].iloc[-1]
 
-                direction = "long" if price > ema21 else "short"
-                size, side = get_position_info()
-
-                log = f"[{now.strftime('%H:%M')}] EMA21: {ema21:.4f} | Fiyat: {price:.4f} | Yön: {direction.upper()}"
+                log = f"[{now.strftime('%H:%M')}] EMA21: {ema21:.4f} | Fiyat: {price:.4f}"
                 print(log)
                 send_telegram_message(log)
 
-                if size >= max_position:
-                    close_position("Buy" if side == "long" else "Sell")
-                    size = 0
+                direction = "long" if price > ema21 else "short"
+                current_side, current_size = get_position()
+
+                # Pozisyon 1000'e ulaştıysa kapat
+                if current_size >= max_position:
+                    close_position(current_side)
+                    time.sleep(1)  # Ağ hatalarına karşı önlem
 
                 open_order(direction)
 
             except Exception as e:
-                print("Bot hatası:", e)
+                print("Hata:", e)
 
         time.sleep(1)
 
