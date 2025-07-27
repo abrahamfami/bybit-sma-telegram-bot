@@ -13,9 +13,10 @@ TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
 
 symbol = "SUIUSDT"
 interval = "1m"
-order_size = 25
-max_position = 1000
+order_size = 30        # ✅ HER işlemde 30 SUI
+max_position = 900     # ✅ 899’u aşınca pozisyon kapat
 
+# Bybit API bağlantısı
 session = HTTP(testnet=False, api_key=BYBIT_API_KEY, api_secret=BYBIT_API_SECRET)
 
 def send_telegram_message(text):
@@ -66,7 +67,7 @@ def close_position(current_side):
             time_in_force="GoodTillCancel",
             reduce_only=True
         )
-        send_telegram_message(f"Pozisyon kapatıldı: {current_side.upper()}")
+        send_telegram_message(f"🔻 Pozisyon kapatıldı: {current_side.upper()}")
     except Exception as e:
         print("Pozisyon kapatma hatası:", e)
 
@@ -81,14 +82,14 @@ def open_order(direction):
             qty=order_size,
             time_in_force="GoodTillCancel"
         )
-        msg = f"{direction.upper()} işlemi açıldı (qty: {order_size})"
+        msg = f"✅ {direction.upper()} işlemi açıldı (qty: {order_size})"
         print(msg)
         send_telegram_message(msg)
     except Exception as e:
         print("İşlem açılamadı:", e)
 
 def run_bot():
-    print("🚀 Bot başlatıldı...")
+    print("🚀 EMA21 Bot başlatıldı... 1 dakikalık kontrol")
     last_minute = -1
 
     while True:
@@ -107,10 +108,9 @@ def run_bot():
                 direction = "long" if price > ema21 else "short"
                 current_side, current_size = get_position()
 
-                # Pozisyon 1000'e ulaştıysa kapat
                 if current_size >= max_position:
                     close_position(current_side)
-                    time.sleep(1)  # Ağ hatalarına karşı önlem
+                    time.sleep(1)
 
                 open_order(direction)
 
