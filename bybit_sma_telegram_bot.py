@@ -113,8 +113,8 @@ def place_order_with_tp_sl(signal, entry_price):
             side=side,
             order_type="Market",
             qty=position_size,
-            take_profit=tp_price,
-            stop_loss=sl_price,
+            take_profit=str(tp_price),  # ← düzeltildi
+            stop_loss=str(sl_price),    # ← düzeltildi
             time_in_force="GTC",
             position_idx=0
         )
