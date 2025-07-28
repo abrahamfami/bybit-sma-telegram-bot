@@ -14,16 +14,17 @@ SEND_EMA_LOG = os.environ.get("SEND_EMA_LOG", "true").lower() == "true"
 symbol = "SUIUSDT"
 position_size = 200
 leverage = 30
+tp_percent = 0.02
+sl_percent = 0.01
 
 session = HTTP(api_key=BYBIT_API_KEY, api_secret=BYBIT_API_SECRET)
 
 def send_telegram(text):
     try:
         url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-        data = {"chat_id": TELEGRAM_CHAT_ID, "text": text}
-        requests.post(url, data=data)
-    except:
-        pass
+        requests.post(url, data={"chat_id": TELEGRAM_CHAT_ID, "text": text})
+    except Exception as e:
+        print("Telegram hatası:", e)
 
 def fetch_ohlcv(symbol, interval, limit=200):
     url = f"https://api.binance.com/api/v3/klines?symbol={symbol}&interval={interval}&limit={limit}"
@@ -97,62 +98,88 @@ def close_position(side):
         )
         send_telegram(f"🔴 Pozisyon kapatıldı ({side})")
     except Exception as e:
-        print("Pozisyon kapatma hatası:", e)
+        send_telegram(f"⚠️ Kapatma hatası: {e}")
 
-def open_position(direction, entry_price):
+def place_market_order(signal, price):
     try:
-        if direction == "long":
-            tp_price = round(entry_price * 1.02, 4)
-            sl_price = round(entry_price * 0.99, 4)
-            side = "Buy"
-        else:
-            tp_price = round(entry_price * 0.98, 4)
-            sl_price = round(entry_price * 1.01, 4)
-            side = "Sell"
-
+        side = "Buy" if signal == "long" else "Sell"
         session.place_order(
             category="linear",
             symbol=symbol,
             side=side,
             order_type="Market",
             qty=position_size,
-            take_profit=tp_price,
-            stop_loss=sl_price,
             reduce_only=False
         )
+        send_telegram(f"🟢 Pozisyon açıldı: {signal.upper()} @ {price:.4f}")
+        return True
+    except Exception as e:
+        send_telegram(f"⛔️ Pozisyon açma hatası: {e}")
+        return False
 
-        send_telegram(
-            f"🟢 Pozisyon Açıldı: {direction.upper()}\n"
-            f"🎯 TP: {tp_price}\n🛑 SL: {sl_price}\n"
-            f"📌 Giriş Fiyatı: {entry_price:.4f}\n📊 Miktar: {position_size} SUI"
+def place_tp_sl_orders(signal, entry_price):
+    try:
+        if signal == "long":
+            tp_price = round(entry_price * (1 + tp_percent), 4)
+            sl_price = round(entry_price * (1 - sl_percent), 4)
+            tp_side = "Sell"
+            sl_side = "Sell"
+        else:
+            tp_price = round(entry_price * (1 - tp_percent), 4)
+            sl_price = round(entry_price * (1 + sl_percent), 4)
+            tp_side = "Buy"
+            sl_side = "Buy"
+
+        # TP – Limit order
+        session.place_order(
+            category="linear",
+            symbol=symbol,
+            side=tp_side,
+            order_type="Limit",
+            price=tp_price,
+            qty=position_size,
+            time_in_force="GoodTillCancel",
+            reduce_only=True
         )
 
-    except Exception as e:
-        print("Pozisyon açma hatası:", e)
+        # SL – Stop Market
+        session.place_order(
+            category="linear",
+            symbol=symbol,
+            side=sl_side,
+            order_type="StopMarket",
+            trigger_price=sl_price,
+            qty=position_size,
+            time_in_force="GoodTillCancel",
+            reduce_only=True
+        )
 
-# === Ana Döngü ===
+        send_telegram(f"🎯 TP: {tp_price}\n🛑 SL: {sl_price}")
+
+    except Exception as e:
+        send_telegram(f"⚠️ TP/SL emir hatası: {e}")
+
+# === ANA DÖNGÜ ===
 last_signal = None
 
 while True:
     try:
-        signal, price = get_combined_signal(send_log=True)
+        signal, price = get_combined_signal()
+
         if signal and signal != last_signal:
             pos = get_current_position()
 
             if pos:
-                if (
-                    (signal == "long" and pos["side"] == "Sell")
-                    or (signal == "short" and pos["side"] == "Buy")
-                ):
-                    close_position(pos["side"])
-                    time.sleep(2)
+                close_position(pos["side"])
+                time.sleep(2)
 
-            if not pos or (signal != pos["side"].lower()):
-                open_position(signal, price)
+            if place_market_order(signal, price):
+                time.sleep(1)
+                place_tp_sl_orders(signal, price)
                 last_signal = signal
 
         time.sleep(60)
 
     except Exception as e:
-        print("Bot hatası:", e)
+        send_telegram(f"🚨 Genel bot hatası:\n{e}")
         time.sleep(60)
