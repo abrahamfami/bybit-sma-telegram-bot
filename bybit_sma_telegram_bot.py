@@ -125,7 +125,8 @@ def place_order_with_tp_sl(signal, entry_price):
         )
 
         send_telegram(
-            f"🟢 Yeni Pozisyon Açıldı: {signal.upper()} @ {entry_price:.4f}\n🎯 TP: {tp_price} | 🛑 SL: {sl_price}"
+            f"🟢 Yeni Pozisyon Açıldı: {signal.upper()} @ {entry_price:.4f}
+🎯 TP: {tp_price} | 🛑 SL: {sl_price}"
         )
         return True
     except Exception as e:
@@ -135,32 +136,34 @@ def place_order_with_tp_sl(signal, entry_price):
 # === Kontrol değişkenleri ===
 previous_signal = None
 signal_reset_occurred = True
+last_position_side = None
 
 while True:
     try:
         signal, price = get_combined_signal()
         current_position = get_current_position()
 
-        # Sinyal değiştiyse kontrol et
         if signal != previous_signal:
             if signal is None:
                 signal_reset_occurred = True
-            previous_signal = signal  # Güncel sinyali tut
+            previous_signal = signal
 
         position_side = None
         if current_position:
             position_side = "long" if current_position["side"] == "Buy" else "short"
 
-        if signal and signal != position_side and signal_reset_occurred:
+        if signal and signal != position_side and signal_reset_occurred and signal != last_position_side:
             if current_position:
                 close_position(current_position["side"])
                 time.sleep(2)
 
             if place_order_with_tp_sl(signal, price):
                 signal_reset_occurred = False
+                last_position_side = signal
 
         time.sleep(60)
 
     except Exception as e:
-        send_telegram(f"🚨 Bot Hatası:\n{e}")
+        send_telegram(f"🚨 Bot Hatası:
+{e}")
         time.sleep(60)
