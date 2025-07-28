@@ -140,18 +140,18 @@ def place_tp_sl_orders(signal, entry_price):
             reduce_only=True
         )
 
-        # SL: Market order with trigger
+        # SL: StopMarket order with reduce_only=False
         session.place_order(
             category="linear",
             symbol=symbol,
             side=sl_side,
-            order_type="Market",
+            order_type="StopMarket",
             trigger_price=sl_price,
             trigger_direction=trigger_direction,
             trigger_by="LastPrice",
             qty=position_size,
             time_in_force="GTC",
-            reduce_only=True,
+            reduce_only=False,  # ⚠️ Buraya dikkat
             position_idx=0
         )
 
