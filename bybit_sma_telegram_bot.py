@@ -119,9 +119,9 @@ def place_order_with_tp_sl(signal, entry_price):
             position_idx=0
         )
 
-        send_telegram(f"🟢 Pozisyon açıldı: {signal.upper()} @ {entry_price:.4f}
-🎯 TP: {tp_price}
-🛑 SL: {sl_price}")
+        send_telegram(
+            f"🟢 Pozisyon açıldı: {signal.upper()} @ {entry_price:.4f}\n🎯 TP: {tp_price}\n🛑 SL: {sl_price}"
+        )
         return True
 
     except Exception as e:
@@ -146,6 +146,5 @@ while True:
         time.sleep(60)
 
     except Exception as e:
-        send_telegram(f"🚨 Genel bot hatası:
-{e}")
+        send_telegram(f"🚨 Genel bot hatası:\n{e}")
         time.sleep(60)
