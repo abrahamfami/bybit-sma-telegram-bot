@@ -4,7 +4,7 @@ import pandas as pd
 from pybit.unified_trading import HTTP
 import os
 
-# Ortam Değişkenleri (API KEY'LERİNİ BURAYA EKLE ya da .env üzerinden çağır)
+# Ortam Değişkenleri
 BYBIT_API_KEY = os.environ.get("BYBIT_API_KEY")
 BYBIT_API_SECRET = os.environ.get("BYBIT_API_SECRET")
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
@@ -150,10 +150,11 @@ def place_tp_sl_orders(signal, entry_price):
             trigger_by="LastPrice",
             qty=position_size,
             time_in_force="GTC",
-            reduce_only=True
+            reduce_only=True,
+            position_idx=0
         )
 
-        send_telegram(f"🎯 TP: {tp_price}\\n🛑 SL: {sl_price}")
+        send_telegram(f"🎯 TP: {tp_price}\n🛑 SL: {sl_price}")
 
     except Exception as e:
         send_telegram(f"⚠️ TP/SL emir hatası: {e}")
@@ -179,5 +180,5 @@ while True:
         time.sleep(60)
 
     except Exception as e:
-        send_telegram(f"🚨 Genel bot hatası:\\n{e}")
+        send_telegram(f"🚨 Genel bot hatası:\n{e}")
         time.sleep(60)
