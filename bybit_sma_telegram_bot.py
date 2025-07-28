@@ -11,7 +11,7 @@ TELEGRAM_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
 
 symbol = "SUIUSDT"
-position_size = 300
+position_size = 200
 tp_percent = 0.02
 sl_percent = 0.01
 
@@ -137,26 +137,30 @@ def place_order_with_tp_sl(signal, entry_price):
         send_telegram(f"⛔️ Pozisyon açma hatası (TP/SL dahil): {e}")
         return False
 
-last_signal = None
+last_executed_signal = None
+signal_reset_occurred = True  # Sinyal önce "None" olmalı ki tekrar aynı yönde işlem açabilelim
 
 while True:
     try:
         signal, price = get_combined_signal()
         current_position = get_current_position()
 
-        if signal:
+        if signal is None:
+            signal_reset_occurred = True
+
+        else:
             position_side = None
             if current_position:
                 position_side = "long" if current_position["side"] == "Buy" else "short"
 
-            # Sadece sinyal yönü değiştiyse pozisyon kapat ve yenisini aç
-            if signal != position_side:
+            if signal != position_side and signal_reset_occurred:
                 if current_position:
                     close_position(current_position["side"])
                     time.sleep(2)
 
                 if place_order_with_tp_sl(signal, price):
-                    last_signal = signal
+                    last_executed_signal = signal
+                    signal_reset_occurred = False  # Aynı yön için tekrar işlem açılmaması için
 
         time.sleep(60)
 
