@@ -133,7 +133,6 @@ def place_order_with_tp_sl(signal, entry_price):
         return False
 
 # === Kontrol değişkenleri ===
-last_executed_signal = None
 signal_reset_occurred = True  # sinyal önce None oldu mu?
 
 while True:
@@ -141,7 +140,7 @@ while True:
         signal, price = get_combined_signal()
         current_position = get_current_position()
 
-        # Sinyal yoksa reset bayrağını aktif et
+        # Eğer sinyal yoksa: reset bayrağını aktifleştir
         if signal is None:
             signal_reset_occurred = True
 
@@ -150,15 +149,14 @@ while True:
             if current_position:
                 position_side = "long" if current_position["side"] == "Buy" else "short"
 
-            # ✅ Sadece: sinyal != mevcut pozisyon yönü ve arada None geldiyse ve yeni sinyal öncekiyle aynı değilse
-            if signal != position_side and signal_reset_occurred and signal != last_executed_signal:
+            # ✅ Sadece sinyal önce None olmuşsa ve şu anki pozisyonla yön farklıysa
+            if signal != position_side and signal_reset_occurred:
                 if current_position:
                     close_position(current_position["side"])
                     time.sleep(2)
 
                 if place_order_with_tp_sl(signal, price):
-                    last_executed_signal = signal
-                    signal_reset_occurred = False
+                    signal_reset_occurred = False  # sinyal artık "yeniden" değil
 
         time.sleep(60)
 
