@@ -96,69 +96,37 @@ def close_position(side):
     except Exception as e:
         send_telegram(f"⚠️ Kapatma hatası: {e}")
 
-def place_market_order(signal, price):
+def place_order_with_tp_sl(signal, entry_price):
     try:
-        side = "Buy" if signal == "long" else "Sell"
+        if signal == "long":
+            side = "Buy"
+            tp_price = round(entry_price * (1 + tp_percent), 4)
+            sl_price = round(entry_price * (1 - sl_percent), 4)
+        else:
+            side = "Sell"
+            tp_price = round(entry_price * (1 - tp_percent), 4)
+            sl_price = round(entry_price * (1 + sl_percent), 4)
+
         session.place_order(
             category="linear",
             symbol=symbol,
             side=side,
             order_type="Market",
             qty=position_size,
-            reduce_only=False
-        )
-        send_telegram(f"🟢 Pozisyon açıldı: {signal.upper()} @ {price:.4f}")
-        return True
-    except Exception as e:
-        send_telegram(f"⛔️ Pozisyon açma hatası: {e}")
-        return False
-
-def place_tp_sl_orders(signal, entry_price):
-    try:
-        if signal == "long":
-            tp_price = round(entry_price * (1 + tp_percent), 4)
-            sl_price = round(entry_price * (1 - sl_percent), 4)
-            tp_side = "Sell"
-            sl_side = "Sell"
-            trigger_direction = 2
-        else:
-            tp_price = round(entry_price * (1 - tp_percent), 4)
-            sl_price = round(entry_price * (1 + sl_percent), 4)
-            tp_side = "Buy"
-            sl_side = "Buy"
-            trigger_direction = 1
-
-        # TP: Limit order
-        session.place_order(
-            category="linear",
-            symbol=symbol,
-            side=tp_side,
-            order_type="Limit",
-            price=tp_price,
-            qty=position_size,
+            take_profit=tp_price,
+            stop_loss=sl_price,
             time_in_force="GTC",
-            reduce_only=True
-        )
-
-        # SL: StopMarket order with reduce_only=False
-        session.place_order(
-            category="linear",
-            symbol=symbol,
-            side=sl_side,
-            order_type="StopMarket",
-            trigger_price=sl_price,
-            trigger_direction=trigger_direction,
-            trigger_by="LastPrice",
-            qty=position_size,
-            time_in_force="GTC",
-            reduce_only=False,  # ⚠️ Buraya dikkat
             position_idx=0
         )
 
-        send_telegram(f"🎯 TP: {tp_price}\n🛑 SL: {sl_price}")
+        send_telegram(f"🟢 Pozisyon açıldı: {signal.upper()} @ {entry_price:.4f}
+🎯 TP: {tp_price}
+🛑 SL: {sl_price}")
+        return True
 
     except Exception as e:
-        send_telegram(f"⚠️ TP/SL emir hatası: {e}")
+        send_telegram(f"⛔️ Pozisyon açma hatası (TP/SL dahil): {e}")
+        return False
 
 last_signal = None
 
@@ -172,13 +140,12 @@ while True:
                 close_position(pos["side"])
                 time.sleep(2)
 
-            if place_market_order(signal, price):
-                time.sleep(1)
-                place_tp_sl_orders(signal, price)
+            if place_order_with_tp_sl(signal, price):
                 last_signal = signal
 
         time.sleep(60)
 
     except Exception as e:
-        send_telegram(f"🚨 Genel bot hatası:\n{e}")
+        send_telegram(f"🚨 Genel bot hatası:
+{e}")
         time.sleep(60)
