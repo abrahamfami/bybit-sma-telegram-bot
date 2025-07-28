@@ -11,7 +11,7 @@ TELEGRAM_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
 
 symbol = "SUIUSDT"
-position_size = 300
+position_size = 500
 tp_percent = 0.02
 sl_percent = 0.01
 
