@@ -58,19 +58,15 @@ def get_combined_signal():
     elif ema9_1m < ema21_1m and ema21_5m < ema200_5m:
         signal = "short"
 
-    log = f"""📡 EMA Kontrol (1m/5m)
+    log = f"""📡 EMA Log (1m/5m)
 🟩 1m EMA:
   EMA9: {ema9_1m:.4f}
   EMA21: {ema21_1m:.4f}
-  ➕ {'EMA9 > EMA21 → BUY' if ema9_1m > ema21_1m else 'EMA9 < EMA21 → SELL'}
-
 🟦 5m EMA:
   EMA21: {ema21_5m:.4f}
   EMA200: {ema200_5m:.4f}
-  ➕ {'EMA21 > EMA200 → UP TREND' if ema21_5m > ema200_5m else 'EMA21 < EMA200 → DOWN TREND'}
-
 💰 Fiyat: {price:.4f}
-📊 Combo Sinyali: {signal.upper() if signal else 'YOK'}
+📊 Sinyal: {signal.upper() if signal else 'YOK'}
 """
     send_telegram(log)
     return signal, price
@@ -85,9 +81,9 @@ def get_current_position():
 def cancel_all_open_orders():
     try:
         session.cancel_all_orders(category="linear", symbol=symbol)
-        send_telegram("📛 Tüm açık TP/SL emirleri iptal edildi")
+        send_telegram("📛 Açık TP/SL emirleri iptal edildi.")
     except Exception as e:
-        send_telegram(f"⚠️ Emir iptali hatası: {e}")
+        send_telegram(f"⚠️ Emir iptal hatası: {e}")
 
 def close_position(side):
     try:
@@ -103,7 +99,7 @@ def close_position(side):
         cancel_all_open_orders()
         send_telegram(f"🔴 Pozisyon kapatıldı ({side})")
     except Exception as e:
-        send_telegram(f"⚠️ Kapatma hatası: {e}")
+        send_telegram(f"⚠️ Pozisyon kapama hatası: {e}")
 
 def place_order_with_tp_sl(signal, entry_price):
     try:
@@ -129,22 +125,23 @@ def place_order_with_tp_sl(signal, entry_price):
         )
 
         send_telegram(
-            f"🟢 Pozisyon açıldı: {signal.upper()} @ {entry_price:.4f}\n🎯 TP: {tp_price}\n🛑 SL: {sl_price}"
+            f"🟢 Yeni Pozisyon Açıldı: {signal.upper()} @ {entry_price:.4f}\n🎯 TP: {tp_price} | 🛑 SL: {sl_price}"
         )
         return True
-
     except Exception as e:
-        send_telegram(f"⛔️ Pozisyon açma hatası (TP/SL dahil): {e}")
+        send_telegram(f"⛔️ Pozisyon açma hatası: {e}")
         return False
 
+# === Kontrol değişkenleri ===
 last_executed_signal = None
-signal_reset_occurred = True  # Sinyal önce "None" olmalı ki tekrar aynı yönde işlem açabilelim
+signal_reset_occurred = True  # sinyal önce None oldu mu?
 
 while True:
     try:
         signal, price = get_combined_signal()
         current_position = get_current_position()
 
+        # Sinyal yoksa reset bayrağını aktif et
         if signal is None:
             signal_reset_occurred = True
 
@@ -153,17 +150,18 @@ while True:
             if current_position:
                 position_side = "long" if current_position["side"] == "Buy" else "short"
 
-            if signal != position_side and signal_reset_occurred:
+            # ✅ Sadece: sinyal != mevcut pozisyon yönü ve arada None geldiyse ve yeni sinyal öncekiyle aynı değilse
+            if signal != position_side and signal_reset_occurred and signal != last_executed_signal:
                 if current_position:
                     close_position(current_position["side"])
                     time.sleep(2)
 
                 if place_order_with_tp_sl(signal, price):
                     last_executed_signal = signal
-                    signal_reset_occurred = False  # Aynı yön için tekrar işlem açılmaması için
+                    signal_reset_occurred = False
 
         time.sleep(60)
 
     except Exception as e:
-        send_telegram(f"🚨 Genel bot hatası:\n{e}")
+        send_telegram(f"🚨 Bot Hatası:\n{e}")
         time.sleep(60)
