@@ -162,6 +162,5 @@ while True:
         time.sleep(60)
 
     except Exception as e:
-        send_telegram(f"🚨 Bot Hatası:
-{e}")
+        send_telegram(f"🚨 Bot Hatası: {e}")
         time.sleep(60)
