@@ -82,6 +82,13 @@ def get_current_position():
             return pos
     return None
 
+def cancel_all_open_orders():
+    try:
+        session.cancel_all_orders(category="linear", symbol=symbol)
+        send_telegram("📛 Tüm açık TP/SL emirleri iptal edildi")
+    except Exception as e:
+        send_telegram(f"⚠️ Emir iptali hatası: {e}")
+
 def close_position(side):
     try:
         session.place_order(
@@ -92,6 +99,8 @@ def close_position(side):
             qty=position_size,
             reduce_only=True
         )
+        time.sleep(1)
+        cancel_all_open_orders()
         send_telegram(f"🔴 Pozisyon kapatıldı ({side})")
     except Exception as e:
         send_telegram(f"⚠️ Kapatma hatası: {e}")
@@ -113,8 +122,8 @@ def place_order_with_tp_sl(signal, entry_price):
             side=side,
             order_type="Market",
             qty=position_size,
-            take_profit=str(tp_price),  # ← düzeltildi
-            stop_loss=str(sl_price),    # ← düzeltildi
+            take_profit=str(tp_price),
+            stop_loss=str(sl_price),
             time_in_force="GTC",
             position_idx=0
         )
@@ -133,15 +142,21 @@ last_signal = None
 while True:
     try:
         signal, price = get_combined_signal()
+        current_position = get_current_position()
 
-        if signal and signal != last_signal:
-            pos = get_current_position()
-            if pos:
-                close_position(pos["side"])
-                time.sleep(2)
+        if signal:
+            position_side = None
+            if current_position:
+                position_side = "long" if current_position["side"] == "Buy" else "short"
 
-            if place_order_with_tp_sl(signal, price):
-                last_signal = signal
+            # Sadece sinyal yönü değiştiyse pozisyon kapat ve yenisini aç
+            if signal != position_side:
+                if current_position:
+                    close_position(current_position["side"])
+                    time.sleep(2)
+
+                if place_order_with_tp_sl(signal, price):
+                    last_signal = signal
 
         time.sleep(60)
 
