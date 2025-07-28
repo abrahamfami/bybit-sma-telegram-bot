@@ -126,8 +126,7 @@ def place_order_with_tp_sl(signal, entry_price):
 
         send_telegram(
             f"🟢 Yeni Pozisyon Açıldı: {signal.upper()} @ {entry_price:.4f}
-🎯 TP: {tp_price} | 🛑 SL: {sl_price}"
-        )
+🎯 TP: {tp_price} | 🛑 SL: {sl_price}")
         return True
     except Exception as e:
         send_telegram(f"⛔️ Pozisyon açma hatası: {e}")
