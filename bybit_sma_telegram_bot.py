@@ -9,7 +9,6 @@ BYBIT_API_KEY = os.environ.get("BYBIT_API_KEY")
 BYBIT_API_SECRET = os.environ.get("BYBIT_API_SECRET")
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
-SEND_EMA_LOG = os.environ.get("SEND_EMA_LOG", "true").lower() == "true"
 
 symbol = "SUIUSDT"
 position_size = 200
@@ -39,7 +38,7 @@ def fetch_ohlcv(symbol, interval, limit=200):
 def calculate_ema(df, period):
     return df["close"].ewm(span=period).mean()
 
-def get_combined_signal(send_log=True):
+def get_combined_signal():
     df_1m = fetch_ohlcv("SUIUSDT", "1m")
     df_5m = fetch_ohlcv("SUIUSDT", "5m")
 
@@ -60,8 +59,8 @@ def get_combined_signal(send_log=True):
     elif ema9_1m < ema21_1m and ema21_5m < ema200_5m:
         signal = "short"
 
-    if send_log and SEND_EMA_LOG:
-        log = f"""📡 EMA Kontrol (1m/5m)
+    # Her zaman EMA logunu gönder
+    log = f"""📡 EMA Kontrol (1m/5m)
 🟩 1m EMA:
   EMA9: {ema9_1m:.4f}
   EMA21: {ema21_1m:.4f}
@@ -75,8 +74,7 @@ def get_combined_signal(send_log=True):
 💰 Fiyat: {price:.4f}
 📊 Combo Sinyali: {signal.upper() if signal else 'YOK'}
 """
-        send_telegram(log)
-
+    send_telegram(log)
     return signal, price
 
 def get_current_position():
@@ -138,7 +136,7 @@ def place_tp_sl_orders(signal, entry_price):
             order_type="Limit",
             price=tp_price,
             qty=position_size,
-            time_in_force="GoodTillCancel",
+            time_in_force="GTC",
             reduce_only=True
         )
 
@@ -150,7 +148,7 @@ def place_tp_sl_orders(signal, entry_price):
             order_type="StopMarket",
             trigger_price=sl_price,
             qty=position_size,
-            time_in_force="GoodTillCancel",
+            time_in_force="GTC",
             reduce_only=True
         )
 
