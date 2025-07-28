@@ -4,7 +4,7 @@ import pandas as pd
 from pybit.unified_trading import HTTP
 import os
 
-# Ortam Değişkenleri
+# --- API ve Telegram bilgileri ---
 BYBIT_API_KEY = os.environ.get("BYBIT_API_KEY")
 BYBIT_API_SECRET = os.environ.get("BYBIT_API_SECRET")
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
@@ -12,7 +12,6 @@ TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
 
 symbol = "SUIUSDT"
 position_size = 200
-leverage = 30
 tp_percent = 0.02
 sl_percent = 0.01
 
@@ -23,7 +22,7 @@ def send_telegram(text):
         url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
         requests.post(url, data={"chat_id": TELEGRAM_CHAT_ID, "text": text})
     except Exception as e:
-        print("Telegram hatası:", e)
+        print("Telegram gönderim hatası:", e)
 
 def fetch_ohlcv(symbol, interval, limit=200):
     url = f"https://api.binance.com/api/v3/klines?symbol={symbol}&interval={interval}&limit={limit}"
@@ -129,6 +128,7 @@ def place_tp_sl_orders(signal, entry_price):
             sl_side = "Buy"
             trigger_direction = 1
 
+        # TP: Limit order
         session.place_order(
             category="linear",
             symbol=symbol,
@@ -140,11 +140,12 @@ def place_tp_sl_orders(signal, entry_price):
             reduce_only=True
         )
 
+        # SL: Market order with trigger
         session.place_order(
             category="linear",
             symbol=symbol,
             side=sl_side,
-            order_type="StopMarket",
+            order_type="Market",
             trigger_price=sl_price,
             trigger_direction=trigger_direction,
             trigger_by="LastPrice",
@@ -167,7 +168,6 @@ while True:
 
         if signal and signal != last_signal:
             pos = get_current_position()
-
             if pos:
                 close_position(pos["side"])
                 time.sleep(2)
