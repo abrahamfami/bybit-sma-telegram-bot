@@ -4,14 +4,14 @@ import pandas as pd
 from pybit.unified_trading import HTTP
 import os
 
-# Ortam değişkenleri (terminal veya .env dosyasından)
+# --- Ortam Değişkenleri ---
 BYBIT_API_KEY = os.environ.get("BYBIT_API_KEY")
 BYBIT_API_SECRET = os.environ.get("BYBIT_API_SECRET")
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
 
 symbol = "SUIUSDT"
-position_size = 100
+position_size = 200  # 200 SUI = ~800 USDT (30x kaldıraçla ~$27 margin)
 leverage = 30
 
 session = HTTP(api_key=BYBIT_API_KEY, api_secret=BYBIT_API_SECRET)
@@ -51,13 +51,14 @@ def get_combined_signal():
     ema21_1m = df_1m.iloc[-1]["EMA21"]
     ema21_5m = df_5m.iloc[-1]["EMA21"]
     ema200_5m = df_5m.iloc[-1]["EMA200"]
+    price = df_1m.iloc[-1]["close"]
 
     if ema9_1m > ema21_1m and ema21_5m > ema200_5m:
-        return "long"
+        return "long", price
     elif ema9_1m < ema21_1m and ema21_5m < ema200_5m:
-        return "short"
+        return "short", price
     else:
-        return None
+        return None, price
 
 def get_current_position():
     positions = session.get_positions(category="linear", symbol=symbol)["result"]["list"]
@@ -80,17 +81,34 @@ def close_position(side):
     except Exception as e:
         print("Pozisyon kapatma hatası:", e)
 
-def open_position(direction):
+def open_position(direction, entry_price):
     try:
+        if direction == "long":
+            tp_price = round(entry_price * 1.02, 4)
+            sl_price = round(entry_price * 0.99, 4)
+            side = "Buy"
+        else:
+            tp_price = round(entry_price * 0.98, 4)
+            sl_price = round(entry_price * 1.01, 4)
+            side = "Sell"
+
         session.place_order(
             category="linear",
             symbol=symbol,
-            side="Buy" if direction == "long" else "Sell",
+            side=side,
             order_type="Market",
             qty=position_size,
+            take_profit=tp_price,
+            stop_loss=sl_price,
             reduce_only=False
         )
-        send_telegram(f"🟢 Yeni pozisyon açıldı: {direction.upper()} ({position_size} SUI)")
+
+        send_telegram(
+            f"🟢 Pozisyon Açıldı: {direction.upper()}\n"
+            f"🎯 TP: {tp_price}\n🛑 SL: {sl_price}\n"
+            f"📌 Giriş Fiyatı: {entry_price:.4f}\n📊 Miktar: {position_size} SUI"
+        )
+
     except Exception as e:
         print("Pozisyon açma hatası:", e)
 
@@ -99,7 +117,7 @@ last_signal = None
 
 while True:
     try:
-        signal = get_combined_signal()
+        signal, price = get_combined_signal()
         if signal and signal != last_signal:
             pos = get_current_position()
 
@@ -112,10 +130,11 @@ while True:
                     time.sleep(2)
 
             if not pos or (signal != pos["side"].lower()):
-                open_position(signal)
+                open_position(signal, price)
                 last_signal = signal
 
         time.sleep(60)
+
     except Exception as e:
         print("Bot hatası:", e)
         time.sleep(60)
