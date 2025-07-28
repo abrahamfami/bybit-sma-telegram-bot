@@ -4,7 +4,7 @@ import pandas as pd
 from pybit.unified_trading import HTTP
 import os
 
-# --- Ortam Değişkenleri ---
+# Ortam Değişkenleri (API KEY'LERİNİ BURAYA EKLE ya da .env üzerinden çağır)
 BYBIT_API_KEY = os.environ.get("BYBIT_API_KEY")
 BYBIT_API_SECRET = os.environ.get("BYBIT_API_SECRET")
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
@@ -59,7 +59,6 @@ def get_combined_signal():
     elif ema9_1m < ema21_1m and ema21_5m < ema200_5m:
         signal = "short"
 
-    # Her zaman EMA logunu gönder
     log = f"""📡 EMA Kontrol (1m/5m)
 🟩 1m EMA:
   EMA9: {ema9_1m:.4f}
@@ -122,13 +121,14 @@ def place_tp_sl_orders(signal, entry_price):
             sl_price = round(entry_price * (1 - sl_percent), 4)
             tp_side = "Sell"
             sl_side = "Sell"
+            trigger_direction = 2
         else:
             tp_price = round(entry_price * (1 - tp_percent), 4)
             sl_price = round(entry_price * (1 + sl_percent), 4)
             tp_side = "Buy"
             sl_side = "Buy"
+            trigger_direction = 1
 
-        # TP – Limit order
         session.place_order(
             category="linear",
             symbol=symbol,
@@ -140,24 +140,24 @@ def place_tp_sl_orders(signal, entry_price):
             reduce_only=True
         )
 
-        # SL – Stop Market
         session.place_order(
             category="linear",
             symbol=symbol,
             side=sl_side,
             order_type="StopMarket",
             trigger_price=sl_price,
+            trigger_direction=trigger_direction,
+            trigger_by="LastPrice",
             qty=position_size,
             time_in_force="GTC",
             reduce_only=True
         )
 
-        send_telegram(f"🎯 TP: {tp_price}\n🛑 SL: {sl_price}")
+        send_telegram(f"🎯 TP: {tp_price}\\n🛑 SL: {sl_price}")
 
     except Exception as e:
         send_telegram(f"⚠️ TP/SL emir hatası: {e}")
 
-# === ANA DÖNGÜ ===
 last_signal = None
 
 while True:
@@ -179,5 +179,5 @@ while True:
         time.sleep(60)
 
     except Exception as e:
-        send_telegram(f"🚨 Genel bot hatası:\n{e}")
+        send_telegram(f"🚨 Genel bot hatası:\\n{e}")
         time.sleep(60)
