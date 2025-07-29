@@ -13,7 +13,7 @@ TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
 symbol = "SUIUSDT"
 position_size = 500
 tp_percent = 0.03   # %3 take profit
-sl_percent = 0.015  # %1.5 stop loss
+sl_percent = 0.01  # %1.5 stop loss
 
 session = HTTP(api_key=BYBIT_API_KEY, api_secret=BYBIT_API_SECRET)
 
