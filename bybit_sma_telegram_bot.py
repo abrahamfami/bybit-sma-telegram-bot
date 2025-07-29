@@ -4,7 +4,7 @@ import pandas as pd
 from pybit.unified_trading import HTTP
 import os
 
-# --- API ve Telegram bilgileri ---
+# === API ve Telegram Bilgileri ===
 BYBIT_API_KEY = os.environ.get("BYBIT_API_KEY")
 BYBIT_API_SECRET = os.environ.get("BYBIT_API_SECRET")
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
@@ -12,8 +12,8 @@ TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
 
 symbol = "SUIUSDT"
 position_size = 500
-tp_percent = 0.01
-sl_percent = 0.005
+tp_percent = 0.03   # %3 take profit
+sl_percent = 0.015  # %1.5 stop loss
 
 session = HTTP(api_key=BYBIT_API_KEY, api_secret=BYBIT_API_SECRET)
 
@@ -24,7 +24,7 @@ def send_telegram(text):
     except Exception as e:
         print("Telegram gönderim hatası:", e)
 
-def fetch_ohlcv(symbol, interval, limit=200):
+def fetch_ohlcv(symbol, interval="5m", limit=200):
     url = f"https://api.binance.com/api/v3/klines?symbol={symbol}&interval={interval}&limit={limit}"
     data = requests.get(url).json()
     df = pd.DataFrame(data, columns=[
@@ -38,33 +38,26 @@ def calculate_ema(df, period):
     return df["close"].ewm(span=period).mean()
 
 def get_combined_signal():
-    df_1m = fetch_ohlcv("SUIUSDT", "1m")
-    df_5m = fetch_ohlcv("SUIUSDT", "5m")
+    df = fetch_ohlcv("SUIUSDT", "5m")
+    df["EMA9"] = calculate_ema(df, 9)
+    df["EMA21"] = calculate_ema(df, 21)
+    df["EMA200"] = calculate_ema(df, 200)
 
-    df_1m["EMA9"] = calculate_ema(df_1m, 9)
-    df_1m["EMA21"] = calculate_ema(df_1m, 21)
-    df_5m["EMA21"] = calculate_ema(df_5m, 21)
-    df_5m["EMA200"] = calculate_ema(df_5m, 200)
-
-    ema9_1m = df_1m.iloc[-1]["EMA9"]
-    ema21_1m = df_1m.iloc[-1]["EMA21"]
-    ema21_5m = df_5m.iloc[-1]["EMA21"]
-    ema200_5m = df_5m.iloc[-1]["EMA200"]
-    price = df_1m.iloc[-1]["close"]
+    ema9 = df.iloc[-1]["EMA9"]
+    ema21 = df.iloc[-1]["EMA21"]
+    ema200 = df.iloc[-1]["EMA200"]
+    price = df.iloc[-1]["close"]
 
     signal = None
-    if ema9_1m > ema21_1m and ema21_5m > ema200_5m:
+    if ema9 > ema21 and ema21 > ema200:
         signal = "long"
-    elif ema9_1m < ema21_1m and ema21_5m < ema200_5m:
+    elif ema9 < ema21 and ema21 < ema200:
         signal = "short"
 
-    log = f"""📡 EMA Log (1m/5m)
-🟩 1m EMA:
-  EMA9: {ema9_1m:.4f}
-  EMA21: {ema21_1m:.4f}
-🟦 5m EMA:
-  EMA21: {ema21_5m:.4f}
-  EMA200: {ema200_5m:.4f}
+    log = f"""📡 EMA Log (5m)
+EMA9: {ema9:.4f}
+EMA21: {ema21:.4f}
+EMA200: {ema200:.4f}
 💰 Fiyat: {price:.4f}
 📊 Sinyal: {signal.upper() if signal else 'YOK'}
 """
@@ -72,10 +65,13 @@ def get_combined_signal():
     return signal, price
 
 def get_current_position():
-    positions = session.get_positions(category="linear", symbol=symbol)["result"]["list"]
-    for pos in positions:
-        if pos["size"] != "0":
-            return pos
+    try:
+        positions = session.get_positions(category="linear", symbol=symbol)["result"]["list"]
+        for pos in positions:
+            if pos["size"] != "0":
+                return pos
+    except Exception as e:
+        send_telegram(f"⚠️ Pozisyon sorgulama hatası: {e}")
     return None
 
 def cancel_all_open_orders():
@@ -132,7 +128,7 @@ def place_order_with_tp_sl(signal, entry_price):
         send_telegram(f"⛔️ Pozisyon açma hatası: {e}")
         return False
 
-# === Kontrol değişkenleri ===
+# === Ana Döngü ===
 previous_signal = None
 signal_reset_occurred = True
 
@@ -150,7 +146,6 @@ while True:
         if current_position:
             position_side = "long" if current_position["side"] == "Buy" else "short"
 
-        # 💡 En kritik yer: last_position_side kontrolü kaldırıldı
         if signal and signal != position_side and signal_reset_occurred:
             if current_position:
                 close_position(current_position["side"])
@@ -159,8 +154,8 @@ while True:
             if place_order_with_tp_sl(signal, price):
                 signal_reset_occurred = False
 
-        time.sleep(60)
+        time.sleep(300)  # 5 dakikalık grafik için uyku süresi
 
     except Exception as e:
         send_telegram(f"🚨 Bot Hatası:\n{e}")
-        time.sleep(60)
+        time.sleep(300)
