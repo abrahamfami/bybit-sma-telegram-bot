@@ -13,7 +13,7 @@ TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
 symbol = "SUIUSDT"
 position_size = 500
 tp_percent = 0.03
-sl_percent = 0.015
+sl_percent = 0.01
 
 session = HTTP(api_key=BYBIT_API_KEY, api_secret=BYBIT_API_SECRET)
 
