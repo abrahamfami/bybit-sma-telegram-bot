@@ -3,6 +3,7 @@ import requests
 import pandas as pd
 from pybit.unified_trading import HTTP
 import os
+from datetime import datetime
 
 # === API ve Telegram Bilgileri ===
 BYBIT_API_KEY = os.environ.get("BYBIT_API_KEY")
@@ -19,8 +20,10 @@ session = HTTP(api_key=BYBIT_API_KEY, api_secret=BYBIT_API_SECRET)
 
 def send_telegram(text):
     try:
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        full_text = f"🕒 {now}\n{text}"
         url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-        requests.post(url, data={"chat_id": TELEGRAM_CHAT_ID, "text": text})
+        requests.post(url, data={"chat_id": TELEGRAM_CHAT_ID, "text": full_text})
     except Exception as e:
         print("Telegram gönderim hatası:", e)
 
@@ -53,11 +56,8 @@ def detect_crossover_signal():
 
     signal = None
 
-    # CROSS UP → LONG (EMA9 aşağıdan yukarı kesti) + trend doğrulaması
     if ema9_prev <= ema21_prev and ema9_now > ema21_now and ema21_now > ema200_now:
         signal = "long"
-
-    # CROSS DOWN → SHORT (EMA9 yukarıdan aşağı kesti) + trend doğrulaması
     elif ema9_prev >= ema21_prev and ema9_now < ema21_now and ema21_now < ema200_now:
         signal = "short"
 
@@ -136,30 +136,38 @@ def place_order_with_tp_sl(signal, entry_price):
         send_telegram(f"⛔️ Pozisyon açma hatası: {e}")
         return False
 
-# === Ana Döngü ===
+# === Ana Döngü: Yalnızca 5 dakikanın başında ===
 while True:
     try:
-        signal, price = detect_crossover_signal()
-        if not signal:
-            time.sleep(300)
-            continue  # Sinyal yoksa atla
+        now = datetime.utcnow()
+        minute = now.minute
+        second = now.second
 
-        current_position = get_current_position()
-        position_side = None
-        if current_position:
-            position_side = "long" if current_position["side"] == "Buy" else "short"
+        if minute % 5 == 0 and second < 10:
+            signal, price = detect_crossover_signal()
 
-        if position_side == signal:
-            send_telegram(f"⏸ Pozisyon zaten açık ({signal.upper()}), işlem açılmadı.")
-        else:
+            if not signal:
+                time.sleep(60)
+                continue
+
+            current_position = get_current_position()
+            position_side = None
             if current_position:
-                close_position(current_position["side"])
-                time.sleep(2)
+                position_side = "long" if current_position["side"] == "Buy" else "short"
 
-            place_order_with_tp_sl(signal, price)
+            if position_side == signal:
+                send_telegram(f"⏸ Pozisyon zaten açık ({signal.upper()}), işlem açılmadı.")
+            else:
+                if current_position:
+                    close_position(current_position["side"])
+                    time.sleep(2)
 
-        time.sleep(300)
+                place_order_with_tp_sl(signal, price)
+
+            time.sleep(60)
+        else:
+            time.sleep(5)
 
     except Exception as e:
         send_telegram(f"🚨 Bot Hatası:\n{e}")
-        time.sleep(300)
+        time.sleep(60)
