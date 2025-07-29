@@ -12,8 +12,8 @@ TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
 
 symbol = "SUIUSDT"
 position_size = 500
-tp_percent = 0.03   # %3 take profit
-sl_percent = 0.01  # %1.5 stop loss
+tp_percent = 0.03
+sl_percent = 0.015
 
 session = HTTP(api_key=BYBIT_API_KEY, api_secret=BYBIT_API_SECRET)
 
@@ -37,27 +37,35 @@ def fetch_ohlcv(symbol, interval="5m", limit=200):
 def calculate_ema(df, period):
     return df["close"].ewm(span=period).mean()
 
-def get_combined_signal():
+def detect_crossover_signal():
     df = fetch_ohlcv("SUIUSDT", "5m")
     df["EMA9"] = calculate_ema(df, 9)
     df["EMA21"] = calculate_ema(df, 21)
     df["EMA200"] = calculate_ema(df, 200)
 
-    ema9 = df.iloc[-1]["EMA9"]
-    ema21 = df.iloc[-1]["EMA21"]
-    ema200 = df.iloc[-1]["EMA200"]
+    ema9_prev = df.iloc[-2]["EMA9"]
+    ema21_prev = df.iloc[-2]["EMA21"]
+
+    ema9_now = df.iloc[-1]["EMA9"]
+    ema21_now = df.iloc[-1]["EMA21"]
+    ema200_now = df.iloc[-1]["EMA200"]
     price = df.iloc[-1]["close"]
 
     signal = None
-    if ema9 > ema21 and ema21 > ema200:
+
+    # CROSS UP → LONG (EMA9 aşağıdan yukarı kesti) + trend doğrulaması
+    if ema9_prev <= ema21_prev and ema9_now > ema21_now and ema21_now > ema200_now:
         signal = "long"
-    elif ema9 < ema21 and ema21 < ema200:
+
+    # CROSS DOWN → SHORT (EMA9 yukarıdan aşağı kesti) + trend doğrulaması
+    elif ema9_prev >= ema21_prev and ema9_now < ema21_now and ema21_now < ema200_now:
         signal = "short"
 
-    log = f"""📡 EMA Log (5m)
-EMA9: {ema9:.4f}
-EMA21: {ema21:.4f}
-EMA200: {ema200:.4f}
+    log = f"""📡 EMA Crossover Log (5m)
+🔁 Önceki:
+  EMA9: {ema9_prev:.4f} | EMA21: {ema21_prev:.4f}
+✅ Şimdi:
+  EMA9: {ema9_now:.4f} | EMA21: {ema21_now:.4f} | EMA200: {ema200_now:.4f}
 💰 Fiyat: {price:.4f}
 📊 Sinyal: {signal.upper() if signal else 'YOK'}
 """
@@ -121,7 +129,7 @@ def place_order_with_tp_sl(signal, entry_price):
         )
 
         send_telegram(
-            f"🟢 Yeni Pozisyon Açıldı: {signal.upper()} @ {entry_price:.4f}\n🎯 TP: {tp_price} | 🛑 SL: {sl_price}"
+            f"🟢 Pozisyon Açıldı: {signal.upper()} @ {entry_price:.4f}\n🎯 TP: {tp_price} | 🛑 SL: {sl_price}"
         )
         return True
     except Exception as e:
@@ -129,32 +137,28 @@ def place_order_with_tp_sl(signal, entry_price):
         return False
 
 # === Ana Döngü ===
-previous_signal = None
-signal_reset_occurred = True
-
 while True:
     try:
-        signal, price = get_combined_signal()
+        signal, price = detect_crossover_signal()
+        if not signal:
+            time.sleep(300)
+            continue  # Sinyal yoksa atla
+
         current_position = get_current_position()
-
-        if signal != previous_signal:
-            if signal is None:
-                signal_reset_occurred = True
-            previous_signal = signal
-
         position_side = None
         if current_position:
             position_side = "long" if current_position["side"] == "Buy" else "short"
 
-        if signal and signal != position_side and signal_reset_occurred:
+        if position_side == signal:
+            send_telegram(f"⏸ Pozisyon zaten açık ({signal.upper()}), işlem açılmadı.")
+        else:
             if current_position:
                 close_position(current_position["side"])
                 time.sleep(2)
 
-            if place_order_with_tp_sl(signal, price):
-                signal_reset_occurred = False
+            place_order_with_tp_sl(signal, price)
 
-        time.sleep(300)  # 5 dakikalık grafik için uyku süresi
+        time.sleep(300)
 
     except Exception as e:
         send_telegram(f"🚨 Bot Hatası:\n{e}")
