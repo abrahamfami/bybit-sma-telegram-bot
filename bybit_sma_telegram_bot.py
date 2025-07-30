@@ -3,7 +3,7 @@ import requests
 import pandas as pd
 from pybit.unified_trading import HTTP
 import os
-from datetime import datetime, timezone
+from datetime import datetime
 
 # === API ve Telegram Bilgileri ===
 BYBIT_API_KEY = os.environ.get("BYBIT_API_KEY")
@@ -20,7 +20,7 @@ session = HTTP(api_key=BYBIT_API_KEY, api_secret=BYBIT_API_SECRET)
 
 def send_telegram(text):
     try:
-        now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         full_text = f"🕒 {now}\n{text}"
         url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
         requests.post(url, data={"chat_id": TELEGRAM_CHAT_ID, "text": full_text})
@@ -40,11 +40,14 @@ def fetch_ohlcv(symbol, interval="5m", limit=200):
 def calculate_ema(df, period):
     return df["close"].ewm(span=period).mean()
 
-def detect_crossover_signal(prev_ema9, prev_ema21):
+def detect_crossover_signal():
     df = fetch_ohlcv("SUIUSDT", "5m")
     df["EMA9"] = calculate_ema(df, 9)
     df["EMA21"] = calculate_ema(df, 21)
     df["EMA200"] = calculate_ema(df, 200)
+
+    ema9_prev = df.iloc[-2]["EMA9"]
+    ema21_prev = df.iloc[-2]["EMA21"]
 
     ema9_now = df.iloc[-1]["EMA9"]
     ema21_now = df.iloc[-1]["EMA21"]
@@ -52,22 +55,22 @@ def detect_crossover_signal(prev_ema9, prev_ema21):
     price = df.iloc[-1]["close"]
 
     signal = None
-    if prev_ema9 is not None and prev_ema21 is not None:
-        if prev_ema9 <= prev_ema21 and ema9_now > ema21_now and ema21_now > ema200_now:
-            signal = "long"
-        elif prev_ema9 >= prev_ema21 and ema9_now < ema21_now and ema21_now < ema200_now:
-            signal = "short"
+
+    if ema9_prev <= ema21_prev and ema9_now > ema21_now and ema21_now > ema200_now:
+        signal = "long"
+    elif ema9_prev >= ema21_prev and ema9_now < ema21_now and ema21_now < ema200_now:
+        signal = "short"
 
     log = f"""📡 EMA Crossover Log (5m)
 🔁 Önceki:
-  EMA9: {prev_ema9:.4f if prev_ema9 else 0} | EMA21: {prev_ema21:.4f if prev_ema21 else 0}
+  EMA9: {ema9_prev:.4f} | EMA21: {ema21_prev:.4f}
 ✅ Şimdi:
   EMA9: {ema9_now:.4f} | EMA21: {ema21_now:.4f} | EMA200: {ema200_now:.4f}
 💰 Fiyat: {price:.4f}
 📊 Sinyal: {signal.upper() if signal else 'YOK'}
 """
     send_telegram(log)
-    return signal, price, ema9_now, ema21_now
+    return signal, price
 
 def get_current_position():
     try:
@@ -133,22 +136,15 @@ def place_order_with_tp_sl(signal, entry_price):
         send_telegram(f"⛔️ Pozisyon açma hatası: {e}")
         return False
 
-# === EMA geçmişini hafızada tutan döngü ===
-prev_ema9 = None
-prev_ema21 = None
-
+# === Ana Döngü: Yalnızca 5 dakikanın başında ===
 while True:
     try:
-        now = datetime.now(timezone.utc)
+        now = datetime.utcnow()
         minute = now.minute
         second = now.second
 
         if minute % 5 == 0 and second < 10:
-            signal, price, ema9_now, ema21_now = detect_crossover_signal(prev_ema9, prev_ema21)
-
-            # Hafızaya al
-            prev_ema9 = ema9_now
-            prev_ema21 = ema21_now
+            signal, price = detect_crossover_signal()
 
             if not signal:
                 time.sleep(60)
