@@ -3,7 +3,7 @@ import requests
 import pandas as pd
 from pybit.unified_trading import HTTP
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 
 # === API ve Telegram Bilgileri ===
 BYBIT_API_KEY = os.environ.get("BYBIT_API_KEY")
@@ -20,7 +20,7 @@ session = HTTP(api_key=BYBIT_API_KEY, api_secret=BYBIT_API_SECRET)
 
 def send_telegram(text):
     try:
-        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
         full_text = f"🕒 {now}\n{text}"
         url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
         requests.post(url, data={"chat_id": TELEGRAM_CHAT_ID, "text": full_text})
@@ -139,7 +139,7 @@ prev_ema21 = None
 
 while True:
     try:
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         minute = now.minute
         second = now.second
 
