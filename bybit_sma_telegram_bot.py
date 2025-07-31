@@ -11,10 +11,10 @@ BYBIT_API_SECRET = os.environ.get("BYBIT_API_SECRET")
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
 
-symbol = "SUIUSDT"
-position_size = 1000
-tp_percent = 0.03
-sl_percent = 0.01
+symbol = "VINEUSDT"
+binance_symbol = "VINEUSDT"  # Binance'te bu sembol varsa kullanılır
+position_size = 4000
+sl_percent = 0.05  # %5 Stop Loss
 
 session = HTTP(api_key=BYBIT_API_KEY, api_secret=BYBIT_API_SECRET)
 
@@ -41,31 +41,27 @@ def calculate_ema(df, period):
     return df["close"].ewm(span=period).mean()
 
 def detect_crossover_signal():
-    df = fetch_ohlcv("SUIUSDT", "5m")
+    df = fetch_ohlcv(binance_symbol, "5m")
     df["EMA9"] = calculate_ema(df, 9)
     df["EMA21"] = calculate_ema(df, 21)
-    df["EMA200"] = calculate_ema(df, 200)
 
     ema9_prev = df.iloc[-2]["EMA9"]
     ema21_prev = df.iloc[-2]["EMA21"]
-
     ema9_now = df.iloc[-1]["EMA9"]
     ema21_now = df.iloc[-1]["EMA21"]
-    ema200_now = df.iloc[-1]["EMA200"]
     price = df.iloc[-1]["close"]
 
     signal = None
-
-    if ema9_prev <= ema21_prev and ema9_now > ema21_now and ema21_now > ema200_now:
+    if ema9_prev <= ema21_prev and ema9_now > ema21_now:
         signal = "long"
-    elif ema9_prev >= ema21_prev and ema9_now < ema21_now and ema21_now < ema200_now:
+    elif ema9_prev >= ema21_prev and ema9_now < ema21_now:
         signal = "short"
 
     log = f"""📡 EMA Crossover Log (5m)
 🔁 Önceki:
   EMA9: {ema9_prev:.4f} | EMA21: {ema21_prev:.4f}
 ✅ Şimdi:
-  EMA9: {ema9_now:.4f} | EMA21: {ema21_now:.4f} | EMA200: {ema200_now:.4f}
+  EMA9: {ema9_now:.4f} | EMA21: {ema21_now:.4f}
 💰 Fiyat: {price:.4f}
 📊 Sinyal: {signal.upper() if signal else 'YOK'}
 """
@@ -85,7 +81,7 @@ def get_current_position():
 def cancel_all_open_orders():
     try:
         session.cancel_all_orders(category="linear", symbol=symbol)
-        send_telegram("📛 Açık TP/SL emirleri iptal edildi.")
+        send_telegram("📛 Açık emirler iptal edildi.")
     except Exception as e:
         send_telegram(f"⚠️ Emir iptal hatası: {e}")
 
@@ -105,16 +101,14 @@ def close_position(side):
     except Exception as e:
         send_telegram(f"⚠️ Pozisyon kapama hatası: {e}")
 
-def place_order_with_tp_sl(signal, entry_price):
+def place_order_with_sl_only(signal, entry_price):
     try:
         if signal == "long":
             side = "Buy"
-            tp_price = round(entry_price * (1 + tp_percent), 4)
-            sl_price = round(entry_price * (1 - sl_percent), 4)
+            sl_price = round(entry_price * (1 - sl_percent), 6)
         else:
             side = "Sell"
-            tp_price = round(entry_price * (1 - tp_percent), 4)
-            sl_price = round(entry_price * (1 + sl_percent), 4)
+            sl_price = round(entry_price * (1 + sl_percent), 6)
 
         session.place_order(
             category="linear",
@@ -122,21 +116,20 @@ def place_order_with_tp_sl(signal, entry_price):
             side=side,
             order_type="Market",
             qty=position_size,
-            take_profit=str(tp_price),
             stop_loss=str(sl_price),
             time_in_force="GTC",
             position_idx=0
         )
 
         send_telegram(
-            f"🟢 Pozisyon Açıldı: {signal.upper()} @ {entry_price:.4f}\n🎯 TP: {tp_price} | 🛑 SL: {sl_price}"
+            f"🟢 Pozisyon Açıldı: {signal.upper()} @ {entry_price:.4f}\n🛑 SL: {sl_price}"
         )
         return True
     except Exception as e:
         send_telegram(f"⛔️ Pozisyon açma hatası: {e}")
         return False
 
-# === Ana Döngü: Yalnızca 5 dakikanın başında ===
+# === Ana Döngü ===
 while True:
     try:
         now = datetime.utcnow()
@@ -155,14 +148,14 @@ while True:
             if current_position:
                 position_side = "long" if current_position["side"] == "Buy" else "short"
 
-            if position_side == signal:
-                send_telegram(f"⏸ Pozisyon zaten açık ({signal.upper()}), işlem açılmadı.")
-            else:
+            if position_side != signal:
                 if current_position:
                     close_position(current_position["side"])
                     time.sleep(2)
 
-                place_order_with_tp_sl(signal, price)
+                place_order_with_sl_only(signal, price)
+            else:
+                send_telegram(f"⏸ Pozisyon zaten açık ({signal.upper()}), işlem yapılmadı.")
 
             time.sleep(60)
         else:
