@@ -137,7 +137,7 @@ def process_pair(pair, cache):
         elif prev_ema9 >= prev_ema21 and ema9_now < ema21_now:
             signal = "short"
 
-    # Güvenli loglama
+    # Log için güvenli string'ler
     prev_ema9_str = f"{prev_ema9:.5f}" if prev_ema9 is not None else "---"
     prev_ema21_str = f"{prev_ema21:.5f}" if prev_ema21 is not None else "---"
 
@@ -146,6 +146,12 @@ def process_pair(pair, cache):
 ✅ Şimdi EMA9: {ema9_now:.5f} | EMA21: {ema21_now:.5f}
 💰 Fiyat: {price:.5f}
 📌 Sinyal: {signal.upper() if signal else 'YOK'}""")
+
+    # Her durumda güncel EMA'ları kaydet
+    cache[symbol] = {
+        "EMA9": ema9_now,
+        "EMA21": ema21_now
+    }
 
     if not signal:
         return
@@ -163,20 +169,11 @@ def process_pair(pair, cache):
     else:
         send_telegram(f"⏸ {symbol} pozisyon zaten açık ({signal.upper()})")
 
-    # Güncel EMA'yı cache'e yaz
-    cache[symbol] = {
-        "EMA9": ema9_now,
-        "EMA21": ema21_now
-    }
-
 # === Ana Döngü ===
 while True:
     try:
         now = datetime.now(timezone.utc)
-        minute = now.minute
-        second = now.second
-
-        if minute % 5 == 0 and second < 10:
+        if now.minute % 5 == 0 and now.second < 10:
             cache = load_cache()
             for pair in PAIRS:
                 process_pair(pair, cache)
@@ -184,7 +181,6 @@ while True:
             time.sleep(60)
         else:
             time.sleep(5)
-
     except Exception as e:
         send_telegram(f"🚨 Genel Hata: {e}")
         time.sleep(60)
