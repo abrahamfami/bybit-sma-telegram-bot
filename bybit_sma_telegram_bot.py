@@ -23,7 +23,7 @@ PAIRS = [
     {"symbol": "ZEREBROUSDT", "bybit_symbol": "ZEREBROUSDT", "qty": 6000}
 ]
 
-TP_PERCENT = 0.05
+TP_PERCENT = 0.03
 SL_PERCENT = 0.05
 CACHE_FILE = "ema_cache.json"
 
