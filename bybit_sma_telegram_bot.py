@@ -23,7 +23,7 @@ PAIRS = [
     {"symbol": "ZEREBROUSDT", "bybit_symbol": "ZEREBROUSDT", "qty": 6000}
 ]
 
-TP_PERCENT = 0.03
+TP_PERCENT = 0.05
 SL_PERCENT = 0.05
 CACHE_FILE = "ema_cache.json"
 
@@ -137,29 +137,33 @@ def process_pair(pair, cache):
         elif prev_ema9 >= prev_ema21 and ema9_now < ema21_now:
             signal = "short"
 
+    # Güvenli loglama
+    prev_ema9_str = f"{prev_ema9:.5f}" if prev_ema9 is not None else "---"
+    prev_ema21_str = f"{prev_ema21:.5f}" if prev_ema21 is not None else "---"
+
     send_telegram(f"""📊 {symbol} Sinyal Kontrolü:
-🔁 Önceki EMA9: {prev_ema9:.5f if prev_ema9 else '---'} | EMA21: {prev_ema21:.5f if prev_ema21 else '---'}
+🔁 Önceki EMA9: {prev_ema9_str} | EMA21: {prev_ema21_str}
 ✅ Şimdi EMA9: {ema9_now:.5f} | EMA21: {ema21_now:.5f}
 💰 Fiyat: {price:.5f}
 📌 Sinyal: {signal.upper() if signal else 'YOK'}""")
 
     if not signal:
-        pass  # sinyal yoksa hiçbir işlem yapma
-    else:
-        current_pos = get_position(bybit_symbol)
-        current_side = None
+        return
+
+    current_pos = get_position(bybit_symbol)
+    current_side = None
+    if current_pos:
+        current_side = "long" if current_pos["side"] == "Buy" else "short"
+
+    if not current_pos or current_side != signal:
         if current_pos:
-            current_side = "long" if current_pos["side"] == "Buy" else "short"
+            close_position(bybit_symbol, current_pos["side"], qty)
+            time.sleep(2)
+        open_position(bybit_symbol, "Buy" if signal == "long" else "Sell", qty, price)
+    else:
+        send_telegram(f"⏸ {symbol} pozisyon zaten açık ({signal.upper()})")
 
-        if not current_pos or current_side != signal:
-            if current_pos:
-                close_position(bybit_symbol, current_pos["side"], qty)
-                time.sleep(2)
-            open_position(bybit_symbol, "Buy" if signal == "long" else "Sell", qty, price)
-        else:
-            send_telegram(f"⏸ {symbol} pozisyon zaten açık ({signal.upper()})")
-
-    # Güncel EMA değerlerini cache’e kaydet
+    # Güncel EMA'yı cache'e yaz
     cache[symbol] = {
         "EMA9": ema9_now,
         "EMA21": ema21_now
