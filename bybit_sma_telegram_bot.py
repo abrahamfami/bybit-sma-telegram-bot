@@ -13,13 +13,13 @@ TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
 
 session = HTTP(api_key=BYBIT_API_KEY, api_secret=BYBIT_API_SECRET)
 
-# === Pariteler ve Pozisyon Büyüklükleri ===
+# === Pariteler ve Güncellenmiş Miktarlar ===
 PAIRS = [
-    {"symbol": "VINEUSDT", "bybit_symbol": "VINEUSDT", "qty": 800},
-    {"symbol": "SWARMSUSDT", "bybit_symbol": "SWARMSUSDT", "qty": 4000},
-    {"symbol": "CHILLGUYUSDT", "bybit_symbol": "CHILLGUYUSDT", "qty": 1600},
-    {"symbol": "GRIFFAINUSDT", "bybit_symbol": "GRIFFAINUSDT", "qty": 3200},
-    {"symbol": "ZEREBROUSDT", "bybit_symbol": "ZEREBROUSDT", "qty": 3000}
+    {"symbol": "VINEUSDT", "bybit_symbol": "VINEUSDT", "qty": 1600},
+    {"symbol": "SWARMSUSDT", "bybit_symbol": "SWARMSUSDT", "qty": 8000},
+    {"symbol": "CHILLGUYUSDT", "bybit_symbol": "CHILLGUYUSDT", "qty": 3200},
+    {"symbol": "GRIFFAINUSDT", "bybit_symbol": "GRIFFAINUSDT", "qty": 6400},
+    {"symbol": "ZEREBROUSDT", "bybit_symbol": "ZEREBROUSDT", "qty": 6000}
 ]
 
 TP_PERCENT = 0.05
