@@ -5,35 +5,39 @@ from pybit.unified_trading import HTTP
 import os
 from datetime import datetime, timezone
 
-# === API ve Telegram Bilgileri ===
+# === API & Telegram Bilgileri ===
 BYBIT_API_KEY = os.environ.get("BYBIT_API_KEY")
 BYBIT_API_SECRET = os.environ.get("BYBIT_API_SECRET")
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
 
-symbol = "VINEUSDT"
-bybit_symbol = "VINEUSDT"  # VINEUSDT.P için kullanılıyor
-position_size = 4000
-tp_percent = 0.10
-sl_percent = 0.05
-
 session = HTTP(api_key=BYBIT_API_KEY, api_secret=BYBIT_API_SECRET)
+
+# === Parite Listesi: Binance & Bybit Symbol ve Miktarlar ===
+PAIRS = [
+    {"symbol": "VINEUSDT", "bybit_symbol": "VINEUSDT", "qty": 800},
+    {"symbol": "SWARMSUSDT", "bybit_symbol": "SWARMSUSDT", "qty": 4000},
+    {"symbol": "CHILLGUYUSDT", "bybit_symbol": "CHILLGUYUSDT", "qty": 1600},
+    {"symbol": "GRIFFAINUSDT", "bybit_symbol": "GRIFFAINUSDT", "qty": 3200},
+    {"symbol": "ZEREBROUSDT", "bybit_symbol": "ZEREBROUSDT", "qty": 3000}
+]
+
+TP_PERCENT = 0.10
+SL_PERCENT = 0.05
 
 def send_telegram(text):
     try:
         now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        full_text = f"🕒 {now}\n{text}"
         url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-        requests.post(url, data={"chat_id": TELEGRAM_CHAT_ID, "text": full_text})
+        requests.post(url, data={"chat_id": TELEGRAM_CHAT_ID, "text": f"🕒 {now}\n{text}"})
     except Exception as e:
         print("Telegram gönderim hatası:", e)
 
-def fetch_ohlcv(symbol="VINEUSDT", interval="5m", limit=200):
+def fetch_binance_ohlcv(symbol, interval="5m", limit=200):
     url = f"https://fapi.binance.com/fapi/v1/klines?symbol={symbol}&interval={interval}&limit={limit}"
     try:
         data = requests.get(url, timeout=10).json()
         if not isinstance(data, list):
-            send_telegram(f"❌ Binance OHLCV format hatası: {data}")
             return None
         df = pd.DataFrame(data, columns=[
             "timestamp", "open", "high", "low", "close", "volume",
@@ -41,18 +45,72 @@ def fetch_ohlcv(symbol="VINEUSDT", interval="5m", limit=200):
         ])
         df["close"] = df["close"].astype(float)
         return df
-    except Exception as e:
-        send_telegram(f"❌ Binance OHLCV alınamadı: {e}")
+    except:
         return None
 
 def calculate_ema(df, period):
     return df["close"].ewm(span=period).mean()
 
-def detect_crossover_signal():
-    df = fetch_ohlcv(symbol, "5m")
+def get_position(symbol):
+    try:
+        positions = session.get_positions(category="linear", symbol=symbol)["result"]["list"]
+        for pos in positions:
+            if pos["size"] != "0":
+                return pos
+    except:
+        return None
+    return None
+
+def close_position(symbol, side, qty):
+    try:
+        session.place_order(
+            category="linear",
+            symbol=symbol,
+            side="Sell" if side == "Buy" else "Buy",
+            order_type="Market",
+            qty=qty,
+            reduce_only=True
+        )
+        time.sleep(1)
+        session.cancel_all_orders(category="linear", symbol=symbol)
+        send_telegram(f"🔴 {symbol} pozisyon kapatıldı ({side})")
+    except Exception as e:
+        send_telegram(f"⚠️ {symbol} pozisyon kapama hatası: {e}")
+
+def open_position(symbol, side, qty, entry_price):
+    try:
+        if side == "Buy":
+            tp = round(entry_price * (1 + TP_PERCENT), 6)
+            sl = round(entry_price * (1 - SL_PERCENT), 6)
+        else:
+            tp = round(entry_price * (1 - TP_PERCENT), 6)
+            sl = round(entry_price * (1 + SL_PERCENT), 6)
+
+        session.place_order(
+            category="linear",
+            symbol=symbol,
+            side=side,
+            order_type="Market",
+            qty=qty,
+            take_profit=str(tp),
+            stop_loss=str(sl),
+            time_in_force="GTC",
+            position_idx=0
+        )
+
+        send_telegram(f"🟢 {symbol} pozisyon açıldı: {side} @ {entry_price:.4f}\n🎯 TP: {tp} | 🛑 SL: {sl}")
+    except Exception as e:
+        send_telegram(f"⛔️ {symbol} işlem açma hatası: {e}")
+
+def process_pair(pair):
+    symbol = pair["symbol"]
+    bybit_symbol = pair["bybit_symbol"]
+    qty = pair["qty"]
+
+    df = fetch_binance_ohlcv(symbol)
     if df is None or df.shape[0] < 2:
-        send_telegram("⚠️ Yetersiz veri: EMA için en az 2 mum gerekiyor.")
-        return None, None
+        send_telegram(f"⚠️ {symbol} için veri alınamadı veya yetersiz.")
+        return
 
     df["EMA9"] = calculate_ema(df, 9)
     df["EMA21"] = calculate_ema(df, 21)
@@ -61,7 +119,7 @@ def detect_crossover_signal():
     ema21_prev = df.iloc[-2]["EMA21"]
     ema9_now = df.iloc[-1]["EMA9"]
     ema21_now = df.iloc[-1]["EMA21"]
-    price = df.iloc[-1]["close"]
+    close = df.iloc[-1]["close"]
 
     signal = None
     if ema9_prev <= ema21_prev and ema9_now > ema21_now:
@@ -69,80 +127,26 @@ def detect_crossover_signal():
     elif ema9_prev >= ema21_prev and ema9_now < ema21_now:
         signal = "short"
 
-    log = f"""📡 EMA Crossover Log (5m)
-🔁 Önceki:
-  EMA9: {ema9_prev:.4f} | EMA21: {ema21_prev:.4f}
-✅ Şimdi:
-  EMA9: {ema9_now:.4f} | EMA21: {ema21_now:.4f}
-💰 Fiyat: {price:.4f}
-📊 Sinyal: {signal.upper() if signal else 'YOK'}
-"""
-    send_telegram(log)
-    return signal, price
+    send_telegram(f"""📊 {symbol} Sinyal Durumu:
+EMA9: {ema9_now:.4f} | EMA21: {ema21_now:.4f}
+Fiyat: {close:.4f} | Sinyal: {signal.upper() if signal else 'YOK'}""")
 
-def get_current_position():
-    try:
-        positions = session.get_positions(category="linear", symbol=bybit_symbol)["result"]["list"]
-        for pos in positions:
-            if pos["size"] != "0":
-                return pos
-    except Exception as e:
-        send_telegram(f"⚠️ Pozisyon sorgulama hatası: {e}")
-    return None
+    if not signal:
+        return
 
-def cancel_all_open_orders():
-    try:
-        session.cancel_all_orders(category="linear", symbol=bybit_symbol)
-        send_telegram("📛 Açık emirler iptal edildi.")
-    except Exception as e:
-        send_telegram(f"⚠️ Emir iptal hatası: {e}")
+    current_pos = get_position(bybit_symbol)
+    current_side = None
+    if current_pos:
+        current_side = "long" if current_pos["side"] == "Buy" else "short"
 
-def close_position(side):
-    try:
-        session.place_order(
-            category="linear",
-            symbol=bybit_symbol,
-            side="Sell" if side == "Buy" else "Buy",
-            order_type="Market",
-            qty=position_size,
-            reduce_only=True
-        )
-        time.sleep(1)
-        cancel_all_open_orders()
-        send_telegram(f"🔴 Pozisyon kapatıldı ({side})")
-    except Exception as e:
-        send_telegram(f"⚠️ Pozisyon kapama hatası: {e}")
-
-def place_order_with_tp_sl(signal, entry_price):
-    try:
-        if signal == "long":
-            side = "Buy"
-            tp_price = round(entry_price * (1 + tp_percent), 6)
-            sl_price = round(entry_price * (1 - sl_percent), 6)
-        else:
-            side = "Sell"
-            tp_price = round(entry_price * (1 - tp_percent), 6)
-            sl_price = round(entry_price * (1 + sl_percent), 6)
-
-        session.place_order(
-            category="linear",
-            symbol=bybit_symbol,
-            side=side,
-            order_type="Market",
-            qty=position_size,
-            take_profit=str(tp_price),
-            stop_loss=str(sl_price),
-            time_in_force="GTC",
-            position_idx=0
-        )
-
-        send_telegram(
-            f"🟢 Pozisyon Açıldı: {signal.upper()} @ {entry_price:.4f}\n🎯 TP: {tp_price} | 🛑 SL: {sl_price}"
-        )
-        return True
-    except Exception as e:
-        send_telegram(f"⛔️ Pozisyon açma hatası: {e}")
-        return False
+    # Pozisyon yoksa veya ters sinyal varsa işlemi güncelle
+    if not current_pos or current_side != signal:
+        if current_pos:
+            close_position(bybit_symbol, current_pos["side"], qty)
+            time.sleep(2)
+        open_position(bybit_symbol, "Buy" if signal == "long" else "Sell", qty, close)
+    else:
+        send_telegram(f"⏸ {symbol} pozisyon zaten açık ({signal.upper()})")
 
 # === Ana Döngü ===
 while True:
@@ -152,30 +156,12 @@ while True:
         second = now.second
 
         if minute % 5 == 0 and second < 10:
-            signal, price = detect_crossover_signal()
-            if not signal:
-                time.sleep(60)
-                continue
-
-            current_position = get_current_position()
-            position_side = None
-            if current_position:
-                position_side = "long" if current_position["side"] == "Buy" else "short"
-
-            # Eğer sinyal ters yöndeyse pozisyon kapatılır, sonra yeni açılır
-            if position_side != signal:
-                if current_position:
-                    close_position(current_position["side"])
-                    time.sleep(2)
-                place_order_with_tp_sl(signal, price)
-            else:
-                send_telegram(f"⏸ Pozisyon zaten açık ({signal.upper()}), işlem açılmadı.")
-
+            for pair in PAIRS:
+                process_pair(pair)
             time.sleep(60)
-
         else:
             time.sleep(5)
 
     except Exception as e:
-        send_telegram(f"🚨 Bot Hatası:\n{e}")
+        send_telegram(f"🚨 Genel Bot Hatası: {e}")
         time.sleep(60)
