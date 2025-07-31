@@ -16,11 +16,11 @@ session = HTTP(api_key=BYBIT_API_KEY, api_secret=BYBIT_API_SECRET)
 
 # === Parite Listesi ===
 PAIRS = [
-    {"symbol": "VINEUSDT", "bybit_symbol": "VINEUSDT", "qty": 1600},
-    {"symbol": "SWARMSUSDT", "bybit_symbol": "SWARMSUSDT", "qty": 8000},
-    {"symbol": "CHILLGUYUSDT", "bybit_symbol": "CHILLGUYUSDT", "qty": 3200},
-    {"symbol": "GRIFFAINUSDT", "bybit_symbol": "GRIFFAINUSDT", "qty": 6400},
-    {"symbol": "ZEREBROUSDT", "bybit_symbol": "ZEREBROUSDT", "qty": 6000}
+    {"symbol": "VINEUSDT", "bybit_symbol": "VINEUSDT", "qty": 2000},
+    {"symbol": "SWARMSUSDT", "bybit_symbol": "SWARMSUSDT", "qty": 10000},
+    {"symbol": "CHILLGUYUSDT", "bybit_symbol": "CHILLGUYUSDT", "qty": 4000},
+    {"symbol": "GRIFFAINUSDT", "bybit_symbol": "GRIFFAINUSDT", "qty": 8000},
+    {"symbol": "ZEREBROUSDT", "bybit_symbol": "ZEREBROUSDT", "qty": 7500}
 ]
 
 TP_PERCENT = 0.03
