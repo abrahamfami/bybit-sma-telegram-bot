@@ -3,7 +3,7 @@ import requests
 import pandas as pd
 from pybit.unified_trading import HTTP
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 
 # === API ve Telegram Bilgileri ===
 BYBIT_API_KEY = os.environ.get("BYBIT_API_KEY")
@@ -11,11 +11,11 @@ BYBIT_API_SECRET = os.environ.get("BYBIT_API_SECRET")
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
 
-symbol = "VINEUSDT"  # Binance futures için
-bybit_symbol = "VINEUSDT"  # Bybit için sembol (VINEUSDT.P ile çalışır)
+symbol = "VINEUSDT"  # Binance futures için veri çekilecek sembol
+bybit_symbol = "VINEUSDT"  # Bybit üzerinde işlem yapılacak sembol (Perpetual: VINEUSDT.P)
 position_size = 4000
-tp_percent = 0.1
-sl_percent = 0.05
+tp_percent = 0.1  # %10 Take Profit
+sl_percent = 0.05  # %5 Stop Loss
 
 session = HTTP(api_key=BYBIT_API_KEY, api_secret=BYBIT_API_SECRET)
 
@@ -147,7 +147,7 @@ def place_order_with_tp_sl(signal, entry_price):
 # === Ana Döngü ===
 while True:
     try:
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         minute = now.minute
         second = now.second
 
@@ -159,17 +159,10 @@ while True:
                 continue
 
             current_position = get_current_position()
-            position_side = None
             if current_position:
-                position_side = "long" if current_position["side"] == "Buy" else "short"
-
-            if position_side != signal:
-                if current_position:
-                    close_position(current_position["side"])
-                    time.sleep(2)
-                place_order_with_tp_sl(signal, price)
+                send_telegram(f"⏸ Aktif pozisyon mevcut ({current_position['side']}), yeni işlem açılmadı.")
             else:
-                send_telegram(f"⏸ Pozisyon zaten açık ({signal.upper()}), işlem yapılmadı.")
+                place_order_with_tp_sl(signal, price)
 
             time.sleep(60)
         else:
