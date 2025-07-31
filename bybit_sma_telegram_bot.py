@@ -14,17 +14,15 @@ TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
 
 session = HTTP(api_key=BYBIT_API_KEY, api_secret=BYBIT_API_SECRET)
 
-# === Parite Listesi ===
+# === Parite Listesi (ZEREBRO ve SWARMS çıkarıldı, miktarlar 2 katına çıkarıldı) ===
 PAIRS = [
-    {"symbol": "VINEUSDT", "bybit_symbol": "VINEUSDT", "qty": 2000},
-    {"symbol": "SWARMSUSDT", "bybit_symbol": "SWARMSUSDT", "qty": 10000},
-    {"symbol": "CHILLGUYUSDT", "bybit_symbol": "CHILLGUYUSDT", "qty": 4000},
-    {"symbol": "GRIFFAINUSDT", "bybit_symbol": "GRIFFAINUSDT", "qty": 8000},
-    {"symbol": "ZEREBROUSDT", "bybit_symbol": "ZEREBROUSDT", "qty": 7500}
+    {"symbol": "VINEUSDT", "bybit_symbol": "VINEUSDT", "qty": 4000},
+    {"symbol": "CHILLGUYUSDT", "bybit_symbol": "CHILLGUYUSDT", "qty": 8000},
+    {"symbol": "GRIFFAINUSDT", "bybit_symbol": "GRIFFAINUSDT", "qty": 16000}
 ]
 
-TP_PERCENT = 0.03
-SL_PERCENT = 0.05
+TP_PERCENT = 0.05  # %5 TP
+SL_PERCENT = 0.05  # %5 SL
 CACHE_FILE = "ema_cache.json"
 
 def send_telegram(text):
@@ -137,7 +135,6 @@ def process_pair(pair, cache):
         elif prev_ema9 >= prev_ema21 and ema9_now < ema21_now:
             signal = "short"
 
-    # Log için güvenli string'ler
     prev_ema9_str = f"{prev_ema9:.5f}" if prev_ema9 is not None else "---"
     prev_ema21_str = f"{prev_ema21:.5f}" if prev_ema21 is not None else "---"
 
@@ -147,11 +144,7 @@ def process_pair(pair, cache):
 💰 Fiyat: {price:.5f}
 📌 Sinyal: {signal.upper() if signal else 'YOK'}""")
 
-    # Her durumda güncel EMA'ları kaydet
-    cache[symbol] = {
-        "EMA9": ema9_now,
-        "EMA21": ema21_now
-    }
+    cache[symbol] = {"EMA9": ema9_now, "EMA21": ema21_now}
 
     if not signal:
         return
