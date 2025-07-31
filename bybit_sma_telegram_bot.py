@@ -22,7 +22,7 @@ PAIRS = [
     {"symbol": "ZEREBROUSDT", "bybit_symbol": "ZEREBROUSDT", "qty": 3000}
 ]
 
-TP_PERCENT = 0.10
+TP_PERCENT = 0.05
 SL_PERCENT = 0.05
 
 def send_telegram(text):
