@@ -12,9 +12,10 @@ TELEGRAM_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
 
 symbol = "VINEUSDT"
-binance_symbol = "VINEUSDT"  # Binance'te bu sembol varsa kullanılır
+binance_symbol = "VINEUSDT"  # Binance'teki sembol (gerekirse kontrol et)
 position_size = 4000
-sl_percent = 0.05  # %5 Stop Loss
+tp_percent = 0.04  # %4 TP
+sl_percent = 0.05  # %5 SL
 
 session = HTTP(api_key=BYBIT_API_KEY, api_secret=BYBIT_API_SECRET)
 
@@ -101,13 +102,15 @@ def close_position(side):
     except Exception as e:
         send_telegram(f"⚠️ Pozisyon kapama hatası: {e}")
 
-def place_order_with_sl_only(signal, entry_price):
+def place_order_with_tp_sl(signal, entry_price):
     try:
         if signal == "long":
             side = "Buy"
+            tp_price = round(entry_price * (1 + tp_percent), 6)
             sl_price = round(entry_price * (1 - sl_percent), 6)
         else:
             side = "Sell"
+            tp_price = round(entry_price * (1 - tp_percent), 6)
             sl_price = round(entry_price * (1 + sl_percent), 6)
 
         session.place_order(
@@ -116,20 +119,21 @@ def place_order_with_sl_only(signal, entry_price):
             side=side,
             order_type="Market",
             qty=position_size,
+            take_profit=str(tp_price),
             stop_loss=str(sl_price),
             time_in_force="GTC",
             position_idx=0
         )
 
         send_telegram(
-            f"🟢 Pozisyon Açıldı: {signal.upper()} @ {entry_price:.4f}\n🛑 SL: {sl_price}"
+            f"🟢 Pozisyon Açıldı: {signal.upper()} @ {entry_price:.4f}\n🎯 TP: {tp_price} | 🛑 SL: {sl_price}"
         )
         return True
     except Exception as e:
         send_telegram(f"⛔️ Pozisyon açma hatası: {e}")
         return False
 
-# === Ana Döngü ===
+# === Ana Döngü: Yalnızca 5 dakikanın başında ===
 while True:
     try:
         now = datetime.utcnow()
@@ -148,12 +152,12 @@ while True:
             if current_position:
                 position_side = "long" if current_position["side"] == "Buy" else "short"
 
+            # Eğer sinyal ters yöndeyse pozisyonu kapat ve yeni aç
             if position_side != signal:
                 if current_position:
                     close_position(current_position["side"])
                     time.sleep(2)
-
-                place_order_with_sl_only(signal, price)
+                place_order_with_tp_sl(signal, price)
             else:
                 send_telegram(f"⏸ Pozisyon zaten açık ({signal.upper()}), işlem yapılmadı.")
 
