@@ -11,11 +11,11 @@ BYBIT_API_SECRET = os.environ.get("BYBIT_API_SECRET")
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
 
-symbol = "VINEUSDT"  # Binance futures için veri çekilecek sembol
-bybit_symbol = "VINEUSDT"  # Bybit üzerinde işlem yapılacak sembol (Perpetual: VINEUSDT.P)
+symbol = "VINEUSDT"
+bybit_symbol = "VINEUSDT"  # VINEUSDT.P için kullanılıyor
 position_size = 4000
-tp_percent = 0.1  # %10 Take Profit
-sl_percent = 0.05  # %5 Stop Loss
+tp_percent = 0.10
+sl_percent = 0.05
 
 session = HTTP(api_key=BYBIT_API_KEY, api_secret=BYBIT_API_SECRET)
 
@@ -153,18 +153,26 @@ while True:
 
         if minute % 5 == 0 and second < 10:
             signal, price = detect_crossover_signal()
-
             if not signal:
                 time.sleep(60)
                 continue
 
             current_position = get_current_position()
+            position_side = None
             if current_position:
-                send_telegram(f"⏸ Aktif pozisyon mevcut ({current_position['side']}), yeni işlem açılmadı.")
-            else:
+                position_side = "long" if current_position["side"] == "Buy" else "short"
+
+            # Eğer sinyal ters yöndeyse pozisyon kapatılır, sonra yeni açılır
+            if position_side != signal:
+                if current_position:
+                    close_position(current_position["side"])
+                    time.sleep(2)
                 place_order_with_tp_sl(signal, price)
+            else:
+                send_telegram(f"⏸ Pozisyon zaten açık ({signal.upper()}), işlem açılmadı.")
 
             time.sleep(60)
+
         else:
             time.sleep(5)
 
