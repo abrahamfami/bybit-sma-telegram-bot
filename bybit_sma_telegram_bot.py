@@ -11,20 +11,19 @@ BYBIT_API_SECRET = os.environ.get("BYBIT_API_SECRET")
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
 
-symbol = "VINEUSDT"  # Binance futures için
-bybit_symbol = "VINEUSDT"  # Bybit için sembol (VINEUSDT.P ile çalışır)
+symbol = "VINEUSDT"  # Binance Futures'ta veri çekmek için
+bybit_symbol = "VINEUSDT"  # Bybit'te işlem açmak için (Perpetual: VINEUSDT.P)
 position_size = 4000
-tp_percent = 0.03
-sl_percent = 0.05
+tp_percent = 0.10  # %10 TP
+sl_percent = 0.01  # %1 SL
 
 session = HTTP(api_key=BYBIT_API_KEY, api_secret=BYBIT_API_SECRET)
 
 def send_telegram(text):
     try:
         now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        full_text = f"🕒 {now}\n{text}"
         url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-        requests.post(url, data={"chat_id": TELEGRAM_CHAT_ID, "text": full_text})
+        requests.post(url, data={"chat_id": TELEGRAM_CHAT_ID, "text": f"🕒 {now}\n{text}"})
     except Exception as e:
         print("Telegram gönderim hatası:", e)
 
@@ -90,29 +89,6 @@ def get_current_position():
         send_telegram(f"⚠️ Pozisyon sorgulama hatası: {e}")
     return None
 
-def cancel_all_open_orders():
-    try:
-        session.cancel_all_orders(category="linear", symbol=bybit_symbol)
-        send_telegram("📛 Açık emirler iptal edildi.")
-    except Exception as e:
-        send_telegram(f"⚠️ Emir iptal hatası: {e}")
-
-def close_position(side):
-    try:
-        session.place_order(
-            category="linear",
-            symbol=bybit_symbol,
-            side="Sell" if side == "Buy" else "Buy",
-            order_type="Market",
-            qty=position_size,
-            reduce_only=True
-        )
-        time.sleep(1)
-        cancel_all_open_orders()
-        send_telegram(f"🔴 Pozisyon kapatıldı ({side})")
-    except Exception as e:
-        send_telegram(f"⚠️ Pozisyon kapama hatası: {e}")
-
 def place_order_with_tp_sl(signal, entry_price):
     try:
         if signal == "long":
@@ -144,7 +120,7 @@ def place_order_with_tp_sl(signal, entry_price):
         send_telegram(f"⛔️ Pozisyon açma hatası: {e}")
         return False
 
-# === Ana Döngü ===
+# === Ana Döngü: Yalnızca 5 dakikanın başında crossover oluşursa ve pozisyon yoksa işlem açılır ===
 while True:
     try:
         now = datetime.utcnow()
@@ -159,19 +135,12 @@ while True:
                 continue
 
             current_position = get_current_position()
-            position_side = None
             if current_position:
-                position_side = "long" if current_position["side"] == "Buy" else "short"
-
-            if position_side != signal:
-                if current_position:
-                    close_position(current_position["side"])
-                    time.sleep(2)
-                place_order_with_tp_sl(signal, price)
+                send_telegram(f"⏸ Aktif pozisyon mevcut ({current_position['side']}), yeni işlem açılmadı.")
             else:
-                send_telegram(f"⏸ Pozisyon zaten açık ({signal.upper()}), işlem yapılmadı.")
+                place_order_with_tp_sl(signal, price)
 
-            time.sleep(60)
+            time.sleep(60)  # Aynı 5 dakikalık periyotta tekrar işlem açmasın
         else:
             time.sleep(5)
 
