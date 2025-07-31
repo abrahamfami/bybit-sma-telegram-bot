@@ -14,7 +14,7 @@ TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
 symbol = "VINEUSDT"  # Binance futures için
 bybit_symbol = "VINEUSDT"  # Bybit için sembol (VINEUSDT.P ile çalışır)
 position_size = 4000
-tp_percent = 0.04
+tp_percent = 0.03
 sl_percent = 0.05
 
 session = HTTP(api_key=BYBIT_API_KEY, api_secret=BYBIT_API_SECRET)
