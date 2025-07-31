@@ -13,7 +13,7 @@ TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
 
 session = HTTP(api_key=BYBIT_API_KEY, api_secret=BYBIT_API_SECRET)
 
-# === Parite Listesi: Binance & Bybit Symbol ve Miktarlar ===
+# === Pariteler ve Pozisyon Büyüklükleri ===
 PAIRS = [
     {"symbol": "VINEUSDT", "bybit_symbol": "VINEUSDT", "qty": 800},
     {"symbol": "SWARMSUSDT", "bybit_symbol": "SWARMSUSDT", "qty": 4000},
@@ -80,11 +80,11 @@ def close_position(symbol, side, qty):
 def open_position(symbol, side, qty, entry_price):
     try:
         if side == "Buy":
-            tp = round(entry_price * (1 + TP_PERCENT), 6)
-            sl = round(entry_price * (1 - SL_PERCENT), 6)
+            tp = round(entry_price * (1 + TP_PERCENT), 5)
+            sl = round(entry_price * (1 - SL_PERCENT), 5)
         else:
-            tp = round(entry_price * (1 - TP_PERCENT), 6)
-            sl = round(entry_price * (1 + SL_PERCENT), 6)
+            tp = round(entry_price * (1 - TP_PERCENT), 5)
+            sl = round(entry_price * (1 + SL_PERCENT), 5)
 
         session.place_order(
             category="linear",
@@ -98,7 +98,7 @@ def open_position(symbol, side, qty, entry_price):
             position_idx=0
         )
 
-        send_telegram(f"🟢 {symbol} pozisyon açıldı: {side} @ {entry_price:.4f}\n🎯 TP: {tp} | 🛑 SL: {sl}")
+        send_telegram(f"🟢 {symbol} pozisyon açıldı: {side} @ {entry_price:.5f}\n🎯 TP: {tp} | 🛑 SL: {sl}")
     except Exception as e:
         send_telegram(f"⛔️ {symbol} işlem açma hatası: {e}")
 
@@ -127,9 +127,15 @@ def process_pair(pair):
     elif ema9_prev >= ema21_prev and ema9_now < ema21_now:
         signal = "short"
 
-    send_telegram(f"""📊 {symbol} Sinyal Durumu:
-EMA9: {ema9_now:.4f} | EMA21: {ema21_now:.4f}
-Fiyat: {close:.4f} | Sinyal: {signal.upper() if signal else 'YOK'}""")
+    log = f"""📊 {symbol} Sinyal Kontrolü:
+🔁 Önceki:
+ EMA9: {ema9_prev:.5f} | EMA21: {ema21_prev:.5f}
+✅ Şimdi:
+ EMA9: {ema9_now:.5f} | EMA21: {ema21_now:.5f}
+💰 Kapanış: {close:.5f}
+📊 Sinyal: {signal.upper() if signal else 'YOK'}
+"""
+    send_telegram(log)
 
     if not signal:
         return
@@ -139,7 +145,6 @@ Fiyat: {close:.4f} | Sinyal: {signal.upper() if signal else 'YOK'}""")
     if current_pos:
         current_side = "long" if current_pos["side"] == "Buy" else "short"
 
-    # Pozisyon yoksa veya ters sinyal varsa işlemi güncelle
     if not current_pos or current_side != signal:
         if current_pos:
             close_position(bybit_symbol, current_pos["side"], qty)
