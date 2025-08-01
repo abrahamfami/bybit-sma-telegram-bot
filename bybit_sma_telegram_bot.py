@@ -16,7 +16,7 @@ session = HTTP(api_key=BYBIT_API_KEY, api_secret=BYBIT_API_SECRET)
 
 # === Ayarlar ===
 symbol = "VINEUSDT"
-qty = 4000
+qty = 5000
 TP_PERCENT = 0.10
 SL_PERCENT = 0.015
 CACHE_FILE = "ema_combo_cache.json"
