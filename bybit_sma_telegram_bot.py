@@ -16,8 +16,7 @@ session = HTTP(api_key=BYBIT_API_KEY, api_secret=BYBIT_API_SECRET)
 
 # === Ayarlar ===
 symbol = "VINEUSDT"
-qty = 1000
-TP_PERCENT = 0.10
+qty = 500
 SL_PERCENT = 0.05
 CACHE_FILE = "ema_cache.json"
 
@@ -85,10 +84,8 @@ def close_position(symbol, side, qty):
 def open_position(symbol, side, qty, entry_price):
     try:
         if side == "Buy":
-            tp = round(entry_price * (1 + TP_PERCENT), 5)
             sl = round(entry_price * (1 - SL_PERCENT), 5)
         else:
-            tp = round(entry_price * (1 - TP_PERCENT), 5)
             sl = round(entry_price * (1 + SL_PERCENT), 5)
 
         session.place_order(
@@ -97,13 +94,12 @@ def open_position(symbol, side, qty, entry_price):
             side=side,
             order_type="Market",
             qty=qty,
-            take_profit=str(tp),
             stop_loss=str(sl),
             time_in_force="GTC",
             position_idx=0
         )
 
-        send_telegram(f"🟢 {symbol} pozisyon açıldı: {side} @ {entry_price:.5f}\n🎯 TP: {tp} | 🛑 SL: {sl}")
+        send_telegram(f"🟢 {symbol} pozisyon açıldı: {side} @ {entry_price:.5f}\n🛑 SL: {sl}")
     except Exception as e:
         send_telegram(f"⛔️ {symbol} işlem açma hatası: {e}")
 
