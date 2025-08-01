@@ -28,7 +28,7 @@ def send_telegram(text):
     except Exception as e:
         print("Telegram gönderim hatası:", e)
 
-def fetch_binance_ohlcv(symbol, interval="5m", limit=100):
+def fetch_ohlcv(symbol, interval="5m", limit=100):
     url = f"https://fapi.binance.com/fapi/v1/klines?symbol={symbol}&interval={interval}&limit={limit}"
     try:
         data = requests.get(url, timeout=10).json()
@@ -55,7 +55,7 @@ def save_cache(cache):
     with open(CACHE_FILE, "w") as f:
         json.dump(cache, f, indent=4)
 
-def get_position(symbol):
+def get_position():
     try:
         positions = session.get_positions(category="linear", symbol=symbol)["result"]["list"]
         for pos in positions:
@@ -65,7 +65,7 @@ def get_position(symbol):
         return None
     return None
 
-def close_position(symbol, side, qty):
+def close_position(side):
     try:
         session.place_order(
             category="linear",
@@ -77,16 +77,13 @@ def close_position(symbol, side, qty):
         )
         time.sleep(1)
         session.cancel_all_orders(category="linear", symbol=symbol)
-        send_telegram(f"🔴 {symbol} pozisyon kapatıldı ({side})")
+        send_telegram(f"🔴 Pozisyon kapatıldı ({side})")
     except Exception as e:
-        send_telegram(f"⚠️ {symbol} pozisyon kapama hatası: {e}")
+        send_telegram(f"⚠️ Pozisyon kapama hatası: {e}")
 
-def open_position(symbol, side, qty, entry_price):
+def open_position(side, price):
     try:
-        if side == "Buy":
-            sl = round(entry_price * (1 - SL_PERCENT), 3)
-        else:
-            sl = round(entry_price * (1 + SL_PERCENT), 3)
+        sl = round(price * (1 - SL_PERCENT), 5) if side == "Buy" else round(price * (1 + SL_PERCENT), 5)
 
         session.place_order(
             category="linear",
@@ -99,12 +96,12 @@ def open_position(symbol, side, qty, entry_price):
             position_idx=0
         )
 
-        send_telegram(f"🟢 {symbol} pozisyon açıldı: {side} @ {entry_price:.3f}\n🛑 SL: {sl}")
+        send_telegram(f"🟢 Pozisyon Açıldı: {side} @ {price:.5f} | 🛑 SL: {sl}")
     except Exception as e:
-        send_telegram(f"⛔️ {symbol} işlem açma hatası: {e}")
+        send_telegram(f"⛔️ Pozisyon açma hatası: {e}")
 
-def process_pair(cache):
-    df = fetch_binance_ohlcv(symbol)
+def run_bot():
+    df = fetch_ohlcv(symbol)
     if df is None or df.shape[0] < 2:
         send_telegram(f"⚠️ {symbol} için veri alınamadı.")
         return
@@ -113,8 +110,9 @@ def process_pair(cache):
     ema21_now = calculate_ema(df, 21)
     price = df.iloc[-1]["close"]
 
-    prev_ema9 = cache.get(symbol, {}).get("EMA9")
-    prev_ema21 = cache.get(symbol, {}).get("EMA21")
+    cache = load_cache()
+    prev_ema9 = cache.get("EMA9")
+    prev_ema21 = cache.get("EMA21")
 
     signal = None
     if prev_ema9 is not None and prev_ema21 is not None:
@@ -123,41 +121,41 @@ def process_pair(cache):
         elif prev_ema9 >= prev_ema21 and ema9_now < ema21_now:
             signal = "short"
 
-    prev_ema9_str = f"{prev_ema9:.3f}" if prev_ema9 is not None else "---"
-    prev_ema21_str = f"{prev_ema21:.3f}" if prev_ema21 is not None else "---"
+    prev_ema9_str = f"{prev_ema9:.5f}" if prev_ema9 is not None else "---"
+    prev_ema21_str = f"{prev_ema21:.5f}" if prev_ema21 is not None else "---"
 
     send_telegram(f"""📊 {symbol} Sinyal Kontrolü:
 🔁 Önceki EMA9: {prev_ema9_str} | EMA21: {prev_ema21_str}
-✅ Şimdi EMA9: {ema9_now:.3f} | EMA21: {ema21_now:.3f}
-💰 Fiyat: {price:.3f}
+✅ Şimdi EMA9: {ema9_now:.5f} | EMA21: {ema21_now:.5f}
+💰 Fiyat: {price:.5f}
 📌 Sinyal: {signal.upper() if signal else 'YOK'}""")
 
-    cache[symbol] = {"EMA9": ema9_now, "EMA21": ema21_now}
+    # Cache güncelle
+    cache["EMA9"] = ema9_now
+    cache["EMA21"] = ema21_now
+    save_cache(cache)
 
     if not signal:
         return
 
-    current_pos = get_position(symbol)
-    current_side = None
+    current_pos = get_position()
     if current_pos:
         current_side = "long" if current_pos["side"] == "Buy" else "short"
-
-    if not current_pos or current_side != signal:
-        if current_pos:
-            close_position(symbol, current_pos["side"], qty)
+        if current_side != signal:
+            close_position(current_pos["side"])
             time.sleep(2)
-        open_position(symbol, "Buy" if signal == "long" else "Sell", qty, price)
+            open_position("Buy" if signal == "long" else "Sell", price)
+        else:
+            send_telegram(f"⏸ Pozisyon zaten açık ({signal.upper()})")
     else:
-        send_telegram(f"⏸ {symbol} pozisyon zaten açık ({signal.upper()})")
+        open_position("Buy" if signal == "long" else "Sell", price)
 
 # === Ana Döngü ===
 while True:
     try:
         now = datetime.now(timezone.utc)
         if now.minute % 5 == 0 and now.second < 10:
-            cache = load_cache()
-            process_pair(cache)
-            save_cache(cache)
+            run_bot()
             time.sleep(60)
         else:
             time.sleep(5)
