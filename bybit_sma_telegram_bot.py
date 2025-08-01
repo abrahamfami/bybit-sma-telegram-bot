@@ -14,15 +14,11 @@ TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
 
 session = HTTP(api_key=BYBIT_API_KEY, api_secret=BYBIT_API_SECRET)
 
-# === Parite Listesi (ZEREBRO ve SWARMS çıkarıldı, miktarlar 2 katına çıkarıldı) ===
-PAIRS = [
-    {"symbol": "VINEUSDT", "bybit_symbol": "VINEUSDT", "qty": 4000},
-    {"symbol": "CHILLGUYUSDT", "bybit_symbol": "CHILLGUYUSDT", "qty": 8000},
-    {"symbol": "GRIFFAINUSDT", "bybit_symbol": "GRIFFAINUSDT", "qty": 16000}
-]
-
-TP_PERCENT = 0.05  # %5 TP
-SL_PERCENT = 0.05  # %5 SL
+# === Ayarlar ===
+symbol = "VINEUSDT"
+qty = 500
+TP_PERCENT = 0.10
+SL_PERCENT = 0.05
 CACHE_FILE = "ema_cache.json"
 
 def send_telegram(text):
@@ -111,11 +107,7 @@ def open_position(symbol, side, qty, entry_price):
     except Exception as e:
         send_telegram(f"⛔️ {symbol} işlem açma hatası: {e}")
 
-def process_pair(pair, cache):
-    symbol = pair["symbol"]
-    bybit_symbol = pair["bybit_symbol"]
-    qty = pair["qty"]
-
+def process_pair(cache):
     df = fetch_binance_ohlcv(symbol)
     if df is None or df.shape[0] < 2:
         send_telegram(f"⚠️ {symbol} için veri alınamadı.")
@@ -149,16 +141,16 @@ def process_pair(pair, cache):
     if not signal:
         return
 
-    current_pos = get_position(bybit_symbol)
+    current_pos = get_position(symbol)
     current_side = None
     if current_pos:
         current_side = "long" if current_pos["side"] == "Buy" else "short"
 
     if not current_pos or current_side != signal:
         if current_pos:
-            close_position(bybit_symbol, current_pos["side"], qty)
+            close_position(symbol, current_pos["side"], qty)
             time.sleep(2)
-        open_position(bybit_symbol, "Buy" if signal == "long" else "Sell", qty, price)
+        open_position(symbol, "Buy" if signal == "long" else "Sell", qty, price)
     else:
         send_telegram(f"⏸ {symbol} pozisyon zaten açık ({signal.upper()})")
 
@@ -168,8 +160,7 @@ while True:
         now = datetime.now(timezone.utc)
         if now.minute % 5 == 0 and now.second < 10:
             cache = load_cache()
-            for pair in PAIRS:
-                process_pair(pair, cache)
+            process_pair(cache)
             save_cache(cache)
             time.sleep(60)
         else:
