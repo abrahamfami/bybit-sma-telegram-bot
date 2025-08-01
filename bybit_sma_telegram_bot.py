@@ -14,7 +14,7 @@ TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
 session = HTTP(api_key=BYBIT_API_KEY, api_secret=BYBIT_API_SECRET)
 
 symbol = "VINEUSDT"
-qty = 1000  # AÇILACAK işlem miktarı = MAX pozisyon
+qty = 1000  # İşlem büyüklüğü sabit
 
 def send_telegram(text):
     try:
@@ -25,7 +25,7 @@ def send_telegram(text):
         print("Telegram gönderim hatası:", e)
 
 def fetch_ohlcv():
-    url = f"https://fapi.binance.com/fapi/v1/klines?symbol={symbol}&interval=1m&limit=10"
+    url = f"https://fapi.binance.com/fapi/v1/klines?symbol={symbol}&interval=5m&limit=10"
     try:
         data = requests.get(url, timeout=10).json()
         df = pd.DataFrame(data, columns=[
@@ -79,14 +79,15 @@ def open_position(signal):
             order_type="Market",
             qty=qty,
             time_in_force="GTC",
-            position_idx=0  # düz pozisyon (hedge değil)
+            position_idx=0
         )
-        send_telegram(f"🟢 Pozisyon açıldı: {signal.upper()} | Miktar: {qty} VINE")
+        send_telegram(f"🟢 Pozisyon açıldı: {signal.upper()} | {qty} VINE")
     except Exception as e:
         send_telegram(f"⛔️ Pozisyon açma hatası: {e}")
 
 def determine_signal(price, ema9):
-    return "short" if price > ema9 else "long"
+    # TERSİNE SİNYAL
+    return "long" if price > ema9 else "short"
 
 # === Ana Döngü ===
 wait_for_next_signal = False
@@ -94,7 +95,8 @@ wait_for_next_signal = False
 while True:
     try:
         now = datetime.now(timezone.utc)
-        if now.second < 10:
+
+        if now.minute % 5 == 0 and now.second < 10:
             df = fetch_ohlcv()
             if df is None or len(df) < 5:
                 time.sleep(60)
@@ -106,7 +108,7 @@ while True:
             signal = determine_signal(price, ema9_now)
 
             pos = get_position()
-            status = f"""📊 EMA9 KONTROL:
+            status = f"""📊 [5DK TERS EMA9 BOTU]
 Fiyat: {price:.5f} | EMA9: {ema9_now:.5f}
 Sinyal: {signal.upper()}
 Pozisyon: {"YOK" if not pos else pos['side'] + " - " + str(pos['size'])}
@@ -115,7 +117,7 @@ Pozisyon: {"YOK" if not pos else pos['side'] + " - " + str(pos['size'])}
 
             if wait_for_next_signal:
                 wait_for_next_signal = False
-                send_telegram("✅ Yeni mum geldi, işlem açılabilir.")
+                send_telegram("✅ Yeni 5dk mumu geldi, işlem açılabilir.")
                 if not pos:
                     open_position(signal)
                 time.sleep(60)
