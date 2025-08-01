@@ -29,7 +29,7 @@ def send_telegram(text):
     except Exception as e:
         print("Telegram gönderim hatası:", e)
 
-def fetch_ohlcv(symbol, interval="5m", limit=100):
+def fetch_ohlcv(symbol, interval="5m", limit=300):
     url = f"https://fapi.binance.com/fapi/v1/klines?symbol={symbol}&interval={interval}&limit={limit}"
     try:
         data = requests.get(url, timeout=10).json()
@@ -109,17 +109,17 @@ def open_position(symbol, side, qty, entry_price):
 
 def process_signal(cache):
     df = fetch_ohlcv(symbol)
-    if df is None or df.shape[0] < 2:
-        send_telegram(f"{symbol} için veri alınamadı.")
+    if df is None or df.shape[0] < 250:
+        send_telegram(f"{symbol} için yeterli veri alınamadı.")
         return
 
     ema9 = calculate_ema(df, 9)
     ema21 = calculate_ema(df, 21)
-    ema200 = calculate_ema(df, 200)
+    ema250 = calculate_ema(df, 250)
 
     ema9_now = ema9.iloc[-1]
     ema21_now = ema21.iloc[-1]
-    ema200_now = ema200.iloc[-1]
+    ema250_now = ema250.iloc[-1]
 
     prev = cache.get(symbol, {})
     ema9_prev = prev.get("EMA9")
@@ -129,14 +129,14 @@ def process_signal(cache):
     signal = None
 
     if ema9_prev is not None and ema21_prev is not None:
-        if ema9_prev <= ema21_prev and ema9_now > ema21_now and ema9_now > ema200_now and ema21_now < ema200_now:
+        if ema9_prev <= ema21_prev and ema9_now > ema21_now and ema9_now > ema250_now and ema21_now < ema250_now:
             signal = "long"
-        elif ema9_prev >= ema21_prev and ema9_now < ema21_now and ema9_now < ema200_now and ema21_now > ema200_now:
+        elif ema9_prev >= ema21_prev and ema9_now < ema21_now and ema9_now < ema250_now and ema21_now > ema250_now:
             signal = "short"
 
     send_telegram(f"""{symbol} EMA Sinyali:
 Önceki EMA9: {ema9_prev if ema9_prev else '---'} | EMA21: {ema21_prev if ema21_prev else '---'}
-Şimdi EMA9: {ema9_now:.5f} | EMA21: {ema21_now:.5f} | EMA200: {ema200_now:.5f}
+Şimdi EMA9: {ema9_now:.5f} | EMA21: {ema21_now:.5f} | EMA250: {ema250_now:.5f}
 Fiyat: {price:.5f}
 Sinyal: {signal.upper() if signal else 'YOK'}""")
 
