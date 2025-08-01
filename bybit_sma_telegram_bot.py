@@ -14,7 +14,7 @@ TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
 session = HTTP(api_key=BYBIT_API_KEY, api_secret=BYBIT_API_SECRET)
 
 symbol = "VINEUSDT"
-max_position_size = 1000
+max_position_size = 1001
 trade_qty = 1000
 
 def send_telegram(text):
