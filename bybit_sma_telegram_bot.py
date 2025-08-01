@@ -1,4 +1,5 @@
 import time
+import json
 import requests
 import pandas as pd
 from pybit.unified_trading import HTTP
@@ -17,6 +18,7 @@ symbol = "VINEUSDT"
 qty = 5000
 tp_percent = 0.1
 sl_percent = 0.015
+CACHE_FILE = "ema_cache.json"
 
 def send_telegram(text):
     try:
@@ -41,7 +43,21 @@ def fetch_ohlcv():
         return None
 
 def calculate_ema(df, period):
-    return df["close"].ewm(span=period).mean()
+    return df["close"].ewm(span=period).mean().iloc[-1]
+
+def load_cache():
+    if os.path.exists(CACHE_FILE):
+        with open(CACHE_FILE, "r") as f:
+            return json.load(f)
+    return {}
+
+def save_cache(ema9, ema21, ema250):
+    with open(CACHE_FILE, "w") as f:
+        json.dump({
+            "EMA9": ema9,
+            "EMA21": ema21,
+            "EMA250": ema250
+        }, f, indent=4)
 
 def get_position():
     try:
@@ -96,25 +112,25 @@ def open_position(signal, entry_price):
 
 def check_signal():
     df = fetch_ohlcv()
-    if df is None or len(df) < 3:
+    if df is None:
         return None, None, None
 
-    df["EMA9"] = calculate_ema(df, 9)
-    df["EMA21"] = calculate_ema(df, 21)
-    df["EMA250"] = calculate_ema(df, 250)
-
-    ema9_prev = df["EMA9"].iloc[-2]
-    ema21_prev = df["EMA21"].iloc[-2]
-    ema250_prev = df["EMA250"].iloc[-2]
-    ema9_now = df["EMA9"].iloc[-1]
-    ema21_now = df["EMA21"].iloc[-1]
+    ema9_now = calculate_ema(df, 9)
+    ema21_now = calculate_ema(df, 21)
+    ema250_now = calculate_ema(df, 250)
     price = df["close"].iloc[-1]
 
+    cache = load_cache()
+    ema9_prev = cache.get("EMA9")
+    ema21_prev = cache.get("EMA21")
+    ema250_prev = cache.get("EMA250")
+
     signal = None
-    if ema9_prev >= ema21_prev and ema9_now < ema21_now and ema21_prev > ema250_prev:
-        signal = "short"
-    elif ema9_prev <= ema21_prev and ema9_now > ema21_now and ema21_prev < ema250_prev:
-        signal = "long"
+    if ema9_prev is not None and ema21_prev is not None and ema250_prev is not None:
+        if ema9_prev >= ema21_prev and ema9_now < ema21_now and ema21_prev > ema250_prev:
+            signal = "short"
+        elif ema9_prev <= ema21_prev and ema9_now > ema21_now and ema21_prev < ema250_prev:
+            signal = "long"
 
     send_telegram(f"""📡 VINEUSDT EMA Sinyali:
 Önceki EMA9: {ema9_prev:.5f} | EMA21: {ema21_prev:.5f} | EMA250: {ema250_prev:.5f}
@@ -122,6 +138,7 @@ def check_signal():
 Fiyat: {price:.5f}
 Sinyal: {signal.upper() if signal else "YOK"}""")
 
+    save_cache(ema9_now, ema21_now, ema250_now)
     return signal, price, signal is not None
 
 # === Ana Döngü ===
