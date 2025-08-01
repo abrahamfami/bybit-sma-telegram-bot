@@ -14,7 +14,7 @@ TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
 symbol = "VINEUSDT"
 binance_symbol = "VINEUSDT"
 interval = "1m"
-position_size = 1000
+position_size = 1000  # Güncellendi: 1000 VINE
 tp_percent = 0.05
 sl_percent = 0.01
 
@@ -135,29 +135,36 @@ def place_order_with_tp_sl(signal, entry_price):
         send_telegram(f"⛔️ Pozisyon açma hatası: {e}")
         return False
 
-# === Ana Döngü ===
+# === Ana Döngü (Dakikada 1 kez çalışır) ===
+last_minute = -1
+
 while True:
     try:
-        signal, price = detect_crossover_signal()
-        if not signal:
-            time.sleep(10)
-            continue
+        now = datetime.utcnow()
+        current_minute = now.minute
 
-        current_position = get_current_position()
-        position_side = None
-        if current_position:
-            position_side = "long" if current_position["side"] == "Buy" else "short"
+        if current_minute != last_minute:
+            last_minute = current_minute
 
-        if position_side == signal:
-            send_telegram(f"⏸ Pozisyon zaten açık ({signal.upper()}), işlem açılmadı.")
-        else:
+            signal, price = detect_crossover_signal()
+            if not signal:
+                continue
+
+            current_position = get_current_position()
+            position_side = None
             if current_position:
-                close_position(current_position["side"])
-                time.sleep(1)
+                position_side = "long" if current_position["side"] == "Buy" else "short"
 
-            place_order_with_tp_sl(signal, price)
+            if position_side == signal:
+                send_telegram(f"⏸ Pozisyon zaten açık ({signal.upper()}), işlem açılmadı.")
+            else:
+                if current_position:
+                    close_position(current_position["side"])
+                    time.sleep(1)
 
-        time.sleep(60)
+                place_order_with_tp_sl(signal, price)
+
+        time.sleep(1)
 
     except Exception as e:
         send_telegram(f"🚨 Bot Hatası:\n{e}")
