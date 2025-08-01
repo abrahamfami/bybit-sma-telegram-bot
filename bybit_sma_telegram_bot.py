@@ -16,7 +16,7 @@ session = HTTP(api_key=BYBIT_API_KEY, api_secret=BYBIT_API_SECRET)
 
 # === Ayarlar ===
 symbol = "VINEUSDT"
-qty = 500
+qty = 4000
 SL_PERCENT = 0.05
 CACHE_FILE = "ema_cache.json"
 
@@ -84,9 +84,9 @@ def close_position(symbol, side, qty):
 def open_position(symbol, side, qty, entry_price):
     try:
         if side == "Buy":
-            sl = round(entry_price * (1 - SL_PERCENT), 5)
+            sl = round(entry_price * (1 - SL_PERCENT), 3)
         else:
-            sl = round(entry_price * (1 + SL_PERCENT), 5)
+            sl = round(entry_price * (1 + SL_PERCENT), 3)
 
         session.place_order(
             category="linear",
@@ -99,7 +99,7 @@ def open_position(symbol, side, qty, entry_price):
             position_idx=0
         )
 
-        send_telegram(f"🟢 {symbol} pozisyon açıldı: {side} @ {entry_price:.5f}\n🛑 SL: {sl}")
+        send_telegram(f"🟢 {symbol} pozisyon açıldı: {side} @ {entry_price:.3f}\n🛑 SL: {sl}")
     except Exception as e:
         send_telegram(f"⛔️ {symbol} işlem açma hatası: {e}")
 
@@ -123,13 +123,13 @@ def process_pair(cache):
         elif prev_ema9 >= prev_ema21 and ema9_now < ema21_now:
             signal = "short"
 
-    prev_ema9_str = f"{prev_ema9:.5f}" if prev_ema9 is not None else "---"
-    prev_ema21_str = f"{prev_ema21:.5f}" if prev_ema21 is not None else "---"
+    prev_ema9_str = f"{prev_ema9:.3f}" if prev_ema9 is not None else "---"
+    prev_ema21_str = f"{prev_ema21:.3f}" if prev_ema21 is not None else "---"
 
     send_telegram(f"""📊 {symbol} Sinyal Kontrolü:
 🔁 Önceki EMA9: {prev_ema9_str} | EMA21: {prev_ema21_str}
-✅ Şimdi EMA9: {ema9_now:.5f} | EMA21: {ema21_now:.5f}
-💰 Fiyat: {price:.5f}
+✅ Şimdi EMA9: {ema9_now:.3f} | EMA21: {ema21_now:.3f}
+💰 Fiyat: {price:.3f}
 📌 Sinyal: {signal.upper() if signal else 'YOK'}""")
 
     cache[symbol] = {"EMA9": ema9_now, "EMA21": ema21_now}
