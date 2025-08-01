@@ -18,7 +18,7 @@ session = HTTP(api_key=BYBIT_API_KEY, api_secret=BYBIT_API_SECRET)
 symbol = "VINEUSDT"
 qty = 4000
 TP_PERCENT = 0.10
-SL_PERCENT = 0.05
+SL_PERCENT = 0.015
 CACHE_FILE = "ema_combo_cache.json"
 
 def send_telegram(text):
