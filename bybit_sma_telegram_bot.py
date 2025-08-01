@@ -3,15 +3,15 @@ import requests
 import pandas as pd
 from pybit.unified_trading import HTTP
 import os
-from datetime import datetime, timezone
+from datetime import datetime
 
-# === API ve Telegram Bilgileri ===
+# === API & Telegram Bilgileri ===
 BYBIT_API_KEY = os.environ.get("BYBIT_API_KEY")
 BYBIT_API_SECRET = os.environ.get("BYBIT_API_SECRET")
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
 
-symbol = "VINEUSDT.P"
+symbol = "VINEUSDT"
 binance_symbol = "VINEUSDT"
 interval = "1m"
 position_size = 5000
