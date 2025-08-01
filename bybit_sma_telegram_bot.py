@@ -15,7 +15,7 @@ session = HTTP(api_key=BYBIT_API_KEY, api_secret=BYBIT_API_SECRET)
 
 symbol = "VINEUSDT"
 max_position_size = 1000
-trade_qty = 100
+trade_qty = 1000
 
 def send_telegram(text):
     try:
