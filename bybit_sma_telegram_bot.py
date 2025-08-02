@@ -15,8 +15,8 @@ TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
 symbol = "MAGICUSDT"
 binance_symbol = "MAGICUSDT"
 interval = "1m"
-position_size = 300
-tp_percent = 0.015
+position_size = 700
+tp_percent = 0.01
 sl_percent = 0.05
 ema_cache_file = "ema_cache_magic.json"
 
