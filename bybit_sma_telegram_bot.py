@@ -15,8 +15,8 @@ TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
 symbol = "MAGICUSDT"
 binance_symbol = "MAGICUSDT"
 interval = "1m"
-position_size = 200
-ema_cache_file = "ema_cache_magic.json"
+position_size = 600
+ema_cache_file = "ema_cache_magic_4_15.json"  # değiştirildi
 
 session = HTTP(api_key=BYBIT_API_KEY, api_secret=BYBIT_API_SECRET)
 
@@ -48,41 +48,41 @@ def load_ema_cache():
             return json.load(f)
     return {}
 
-def save_ema_cache(ema9_now, ema21_now):
+def save_ema_cache(ema4_now, ema15_now):
     data = {
-        "ema9_prev": ema9_now,
-        "ema21_prev": ema21_now
+        "ema4_prev": ema4_now,
+        "ema15_prev": ema15_now
     }
     with open(ema_cache_file, "w") as f:
         json.dump(data, f)
 
 def detect_crossover_signal():
     df = fetch_binance_ohlcv(binance_symbol, interval)
-    df["EMA9"] = calculate_ema(df, 9)
-    df["EMA21"] = calculate_ema(df, 21)
+    df["EMA4"] = calculate_ema(df, 4)
+    df["EMA15"] = calculate_ema(df, 15)
 
-    ema9_now = df.iloc[-1]["EMA9"]
-    ema21_now = df.iloc[-1]["EMA21"]
+    ema4_now = df.iloc[-1]["EMA4"]
+    ema15_now = df.iloc[-1]["EMA15"]
     price = df.iloc[-1]["close"]
 
     cache = load_ema_cache()
-    ema9_prev = cache.get("ema9_prev", df.iloc[-2]["EMA9"])
-    ema21_prev = cache.get("ema21_prev", df.iloc[-2]["EMA21"])
+    ema4_prev = cache.get("ema4_prev", df.iloc[-2]["EMA4"])
+    ema15_prev = cache.get("ema15_prev", df.iloc[-2]["EMA15"])
 
     signal = None
-    if ema9_prev <= ema21_prev and ema9_now > ema21_now:
+    if ema4_prev <= ema15_prev and ema4_now > ema15_now:
         signal = "long"
-    elif ema9_prev >= ema21_prev and ema9_now < ema21_now:
+    elif ema4_prev >= ema15_prev and ema4_now < ema15_now:
         signal = "short"
 
-    log = f"""📡 EMA9/21 CROSSOVER (NO TP/SL)
-⏮ EMA9_prev: {ema9_prev:.5f}, EMA21_prev: {ema21_prev:.5f}
-▶️ EMA9_now:  {ema9_now:.5f}, EMA21_now:  {ema21_now:.5f}
+    log = f"""📡 EMA4/15 CROSSOVER
+⏮ EMA4_prev: {ema4_prev:.5f}, EMA15_prev: {ema15_prev:.5f}
+▶️ EMA4_now:  {ema4_now:.5f}, EMA15_now:  {ema15_now:.5f}
 💰 Fiyat: {price:.5f}
 📊 Sinyal: {signal.upper() if signal else "YOK"}
 """
     send_telegram(log)
-    save_ema_cache(ema9_now, ema21_now)
+    save_ema_cache(ema4_now, ema15_now)
     return signal, price
 
 def get_current_position():
