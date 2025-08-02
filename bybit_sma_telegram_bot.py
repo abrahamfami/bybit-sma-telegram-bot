@@ -15,10 +15,8 @@ TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
 symbol = "MAGICUSDT"
 binance_symbol = "MAGICUSDT"
 interval = "1m"
-position_size = 400
-tp_percent = 0.1
-sl_percent = 0.01
-ema_cache_file = "ema_cache.json"
+position_size = 200
+ema_cache_file = "ema_cache_magic.json"
 
 session = HTTP(api_key=BYBIT_API_KEY, api_secret=BYBIT_API_SECRET)
 
@@ -50,11 +48,10 @@ def load_ema_cache():
             return json.load(f)
     return {}
 
-def save_ema_cache(ema9_now, ema21_now, ema250_now):
+def save_ema_cache(ema9_now, ema21_now):
     data = {
         "ema9_prev": ema9_now,
-        "ema21_prev": ema21_now,
-        "ema250_prev": ema250_now
+        "ema21_prev": ema21_now
     }
     with open(ema_cache_file, "w") as f:
         json.dump(data, f)
@@ -63,32 +60,29 @@ def detect_crossover_signal():
     df = fetch_binance_ohlcv(binance_symbol, interval)
     df["EMA9"] = calculate_ema(df, 9)
     df["EMA21"] = calculate_ema(df, 21)
-    df["EMA250"] = calculate_ema(df, 250)
 
     ema9_now = df.iloc[-1]["EMA9"]
     ema21_now = df.iloc[-1]["EMA21"]
-    ema250_now = df.iloc[-1]["EMA250"]
     price = df.iloc[-1]["close"]
 
     cache = load_ema_cache()
     ema9_prev = cache.get("ema9_prev", df.iloc[-2]["EMA9"])
     ema21_prev = cache.get("ema21_prev", df.iloc[-2]["EMA21"])
-    ema250_prev = cache.get("ema250_prev", df.iloc[-2]["EMA250"])
 
     signal = None
-    if ema9_prev <= ema21_prev and ema9_now > ema21_now and ema21_prev > ema250_prev:
+    if ema9_prev <= ema21_prev and ema9_now > ema21_now:
         signal = "long"
-    elif ema9_prev >= ema21_prev and ema9_now < ema21_now and ema21_prev < ema250_prev:
+    elif ema9_prev >= ema21_prev and ema9_now < ema21_now:
         signal = "short"
 
-    log = f"""📡 EMA Crossover Log (1m)
-⏮ EMA9_prev: {ema9_prev:.5f}, EMA21_prev: {ema21_prev:.5f}, EMA250_prev: {ema250_prev:.5f}
-▶️ EMA9_now: {ema9_now:.5f}, EMA21_now: {ema21_now:.5f}
+    log = f"""📡 EMA9/21 CROSSOVER (NO TP/SL)
+⏮ EMA9_prev: {ema9_prev:.5f}, EMA21_prev: {ema21_prev:.5f}
+▶️ EMA9_now:  {ema9_now:.5f}, EMA21_now:  {ema21_now:.5f}
 💰 Fiyat: {price:.5f}
 📊 Sinyal: {signal.upper() if signal else "YOK"}
 """
     send_telegram(log)
-    save_ema_cache(ema9_now, ema21_now, ema250_now)
+    save_ema_cache(ema9_now, ema21_now)
     return signal, price
 
 def get_current_position():
@@ -104,9 +98,8 @@ def get_current_position():
 def cancel_all_open_orders():
     try:
         session.cancel_all_orders(category="linear", symbol=symbol)
-        send_telegram("🧹 Açık TP/SL emirleri iptal edildi.")
-    except Exception as e:
-        send_telegram(f"⚠️ Emir iptal hatası: {e}")
+    except:
+        pass
 
 def close_position(side):
     try:
@@ -124,38 +117,23 @@ def close_position(side):
     except Exception as e:
         send_telegram(f"⚠️ Pozisyon kapama hatası: {e}")
 
-def place_order_with_tp_sl(signal, entry_price):
+def place_market_order(signal, entry_price):
     try:
-        if signal == "long":
-            side = "Buy"
-            tp_price = round(entry_price * (1 + tp_percent), 5)
-            sl_price = round(entry_price * (1 - sl_percent), 5)
-        else:
-            side = "Sell"
-            tp_price = round(entry_price * (1 - tp_percent), 5)
-            sl_price = round(entry_price * (1 + sl_percent), 5)
-
+        side = "Buy" if signal == "long" else "Sell"
         session.place_order(
             category="linear",
             symbol=symbol,
             side=side,
             order_type="Market",
             qty=position_size,
-            take_profit=str(tp_price),
-            stop_loss=str(sl_price),
             time_in_force="GTC",
             position_idx=0
         )
-
-        send_telegram(
-            f"📈 Pozisyon Açıldı: {signal.upper()} @ {entry_price:.5f}\n🎯 TP: {tp_price} | 🛑 SL: {sl_price}"
-        )
-        return True
+        send_telegram(f"📈 POZİSYON AÇILDI: {side} @ {entry_price:.5f}")
     except Exception as e:
         send_telegram(f"⛔️ Pozisyon açma hatası: {e}")
-        return False
 
-# === Ana Döngü (Dakikada bir) ===
+# === Ana Döngü (Dakikada bir, sadece crossover'da işlem açar) ===
 last_minute = -1
 
 while True:
@@ -176,16 +154,16 @@ while True:
                 position_side = "long" if current_position["side"] == "Buy" else "short"
 
             if position_side == signal:
-                send_telegram(f"⏸ Pozisyon zaten açık ({signal.upper()}), işlem açılmadı.")
+                send_telegram(f"⏸ Aynı yönde pozisyon zaten açık, yeni işlem yapılmadı.")
             else:
                 if current_position:
                     close_position(current_position["side"])
                     time.sleep(1)
 
-                place_order_with_tp_sl(signal, price)
+                place_market_order(signal, price)
 
         time.sleep(1)
 
     except Exception as e:
-        send_telegram(f"🚨 Bot Hatası:\n{e}")
+        send_telegram(f"🚨 BOT HATASI:\n{e}")
         time.sleep(60)
