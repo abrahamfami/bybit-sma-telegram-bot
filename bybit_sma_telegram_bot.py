@@ -16,7 +16,7 @@ symbol = "MAGICUSDT"
 binance_symbol = "MAGICUSDT"
 interval = "1m"
 position_size = 300
-tp_percent = 0.03
+tp_percent = 0.015
 sl_percent = 0.05
 ema_cache_file = "ema_cache_magic.json"
 
