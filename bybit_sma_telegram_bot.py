@@ -15,7 +15,9 @@ TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
 symbol = "MAGICUSDT"
 binance_symbol = "MAGICUSDT"
 interval = "1m"
-position_size = 200
+position_size = 300
+tp_percent = 0.03
+sl_percent = 0.05
 ema_cache_file = "ema_cache_magic.json"
 
 session = HTTP(api_key=BYBIT_API_KEY, api_secret=BYBIT_API_SECRET)
@@ -75,7 +77,7 @@ def detect_crossover_signal():
     elif ema9_prev >= ema21_prev and ema9_now < ema21_now:
         signal = "short"
 
-    log = f"""📡 EMA9/21 CROSSOVER (NO TP/SL)
+    log = f"""📡 EMA9/21 CROSSOVER
 ⏮ EMA9_prev: {ema9_prev:.5f}, EMA21_prev: {ema21_prev:.5f}
 ▶️ EMA9_now:  {ema9_now:.5f}, EMA21_now:  {ema21_now:.5f}
 💰 Fiyat: {price:.5f}
@@ -117,23 +119,36 @@ def close_position(side):
     except Exception as e:
         send_telegram(f"⚠️ Pozisyon kapama hatası: {e}")
 
-def place_market_order(signal, entry_price):
+def place_order_with_tp_sl(signal, entry_price):
     try:
-        side = "Buy" if signal == "long" else "Sell"
+        if signal == "long":
+            side = "Buy"
+            tp_price = round(entry_price * (1 + tp_percent), 5)
+            sl_price = round(entry_price * (1 - sl_percent), 5)
+        else:
+            side = "Sell"
+            tp_price = round(entry_price * (1 - tp_percent), 5)
+            sl_price = round(entry_price * (1 + sl_percent), 5)
+
         session.place_order(
             category="linear",
             symbol=symbol,
             side=side,
             order_type="Market",
             qty=position_size,
+            take_profit=str(tp_price),
+            stop_loss=str(sl_price),
             time_in_force="GTC",
             position_idx=0
         )
-        send_telegram(f"📈 POZİSYON AÇILDI: {side} @ {entry_price:.5f}")
+
+        send_telegram(
+            f"📈 POZİSYON AÇILDI: {side} @ {entry_price:.5f}\n🎯 TP: {tp_price} | 🛑 SL: {sl_price}"
+        )
     except Exception as e:
         send_telegram(f"⛔️ Pozisyon açma hatası: {e}")
 
-# === Ana Döngü (Dakikada bir, sadece crossover'da işlem açar) ===
+# === Ana Döngü (Dakikada bir) ===
 last_minute = -1
 
 while True:
@@ -155,12 +170,13 @@ while True:
 
             if position_side == signal:
                 send_telegram(f"⏸ Aynı yönde pozisyon zaten açık, yeni işlem yapılmadı.")
-            else:
-                if current_position:
-                    close_position(current_position["side"])
-                    time.sleep(1)
-
-                place_market_order(signal, price)
+            elif position_side and position_side != signal:
+                send_telegram(f"🔁 Ters sinyal algılandı. Pozisyon değiştiriliyor...")
+                close_position(current_position["side"])
+                time.sleep(1)
+                place_order_with_tp_sl(signal, price)
+            elif not current_position:
+                place_order_with_tp_sl(signal, price)
 
         time.sleep(1)
 
