@@ -14,7 +14,7 @@ TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
 symbol = "VINEUSDT"
 binance_symbol = "VINEUSDT"
 interval = "1m"
-position_size = 1000  # Güncellendi: 1000 VINE
+position_size = 3000  # Güncellendi: 1000 VINE
 tp_percent = 0.05
 sl_percent = 0.01
 
