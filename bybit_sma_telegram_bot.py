@@ -15,7 +15,7 @@ TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
 symbol = "MAGICUSDT"
 binance_symbol = "MAGICUSDT"
 interval = "1m"
-position_size = 200
+position_size = 600
 ema_cache_file = "ema_cache_magic_4_15.json"
 
 session = HTTP(api_key=BYBIT_API_KEY, api_secret=BYBIT_API_SECRET)
