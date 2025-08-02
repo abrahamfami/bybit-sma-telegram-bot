@@ -15,8 +15,8 @@ TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
 symbol = "MAGICUSDT"
 binance_symbol = "MAGICUSDT"
 interval = "1m"
-position_size = 600
-ema_cache_file = "ema_cache_magic_4_15.json"  # değiştirildi
+position_size = 200
+ema_cache_file = "ema_cache_magic_4_15.json"
 
 session = HTTP(api_key=BYBIT_API_KEY, api_secret=BYBIT_API_SECRET)
 
@@ -58,6 +58,10 @@ def save_ema_cache(ema4_now, ema15_now):
 
 def detect_crossover_signal():
     df = fetch_binance_ohlcv(binance_symbol, interval)
+    if len(df) < 2:
+        send_telegram("⚠️ Yetersiz veri: EMA hesaplaması için en az 2 mum gerekiyor.")
+        return None, None
+
     df["EMA4"] = calculate_ema(df, 4)
     df["EMA15"] = calculate_ema(df, 15)
 
